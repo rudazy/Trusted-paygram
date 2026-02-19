@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:docs.zama.org)",
+      "WebFetch(domain:docs.openzeppelin.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(npm install:*)",
+      "Bash(npx hardhat compile:*)",
+      "Bash(npx hardhat test)"
+    ]
+  }
+}
