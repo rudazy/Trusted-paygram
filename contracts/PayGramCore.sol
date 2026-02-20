@@ -5,301 +5,426 @@ import {FHE, euint64, externalEuint64, ebool} from "@fhevm/solidity/lib/FHE.sol"
 import {ZamaEthereumConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
 import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {TrustScoring} from "./TrustScoring.sol";
-import {PayGramToken} from "./PayGramToken.sol";
+import {IERC7984} from "@openzeppelin/confidential-contracts/interfaces/IERC7984.sol";
 
 /**
  * @title PayGramCore
  * @notice Payroll engine that routes encrypted salary payments through trust-gated tiers.
  *         Employers register employees with encrypted salaries and trigger batch payroll
- *         runs.  The contract evaluates each employee's encrypted trust score to decide
- *         the disbursement path — instant, delayed, or escrowed — without revealing
- *         salaries or scores to any party.
+ *         runs. The contract reads each employee's encrypted trust tier from TrustScoring
+ *         and routes payment accordingly — instant, delayed, or escrowed — all without
+ *         revealing salaries or scores to any party.
  *
- * @dev Payment routing logic:
+ * @dev Payment routing logic (fully oblivious via FHE.select):
  *      1. HIGH trust  (score >= 75) → immediate encrypted transfer
- *      2. MEDIUM trust (score >= 40) → 24 h time-locked release
- *      3. LOW trust   (score <  40) → escrow with milestone release
+ *      2. MEDIUM trust (score >= 40) → 24-hour time-locked release
+ *      3. LOW trust   (score <  40) → milestone-gated escrow
  *
- *      The `executePayroll` and `releasePayment` functions are left as stubs for Day 3
- *      implementation once the TrustScoring integration tests pass end-to-end.
+ *      Employees without a trust score are treated as LOW trust.
+ *      Actual ERC-7984 token transfers are wired in Day 4 integration.
  */
 contract PayGramCore is ZamaEthereumConfig, Ownable2Step {
-    /*//////////////////////////////////////////////////////////////
-                               CONSTANTS
-    //////////////////////////////////////////////////////////////*/
+    // ──────────────────────────────────────────────────────────────────
+    //  Constants
+    // ──────────────────────────────────────────────────────────────────
 
-    uint256 public constant DELAY_PERIOD = 24 hours;
+    uint256 public constant DELAY_PERIOD   = 24 hours;
+    uint256 public constant MAX_BATCH_SIZE = 50;
 
-    /*//////////////////////////////////////////////////////////////
-                                 ENUMS
-    //////////////////////////////////////////////////////////////*/
+    // ──────────────────────────────────────────────────────────────────
+    //  Enums
+    // ──────────────────────────────────────────────────────────────────
 
     enum PaymentStatus {
-        None,
-        Instant,
-        Delayed,
-        Escrowed,
-        Released,
-        Completed
+        None,       // 0 — default / uninitialized
+        Instant,    // 1 — immediate transfer (high trust)
+        Delayed,    // 2 — time-locked release (medium trust)
+        Escrowed,   // 3 — milestone-gated (low trust / unscored)
+        Released,   // 4 — funds disbursed
+        Completed   // 5 — finalized or cancelled
     }
 
-    /*//////////////////////////////////////////////////////////////
-                               STRUCTS
-    //////////////////////////////////////////////////////////////*/
+    // ──────────────────────────────────────────────────────────────────
+    //  Structs
+    // ──────────────────────────────────────────────────────────────────
 
     struct Employee {
         address wallet;
         euint64 encryptedSalary;
-        bool isActive;
+        bool    isActive;
         uint256 hireDate;
         uint256 lastPayDate;
+        string  role;
     }
 
     struct PendingPayment {
-        address employee;
-        euint64 encryptedAmount;
+        uint256       id;
+        address       employee;
+        euint64       encryptedAmount;
         PaymentStatus status;
-        uint256 createdAt;
-        uint256 releaseAfter;
+        uint256       createdAt;
+        uint256       releaseTime;
+        string        milestone;
     }
 
-    /*//////////////////////////////////////////////////////////////
-                                STORAGE
-    //////////////////////////////////////////////////////////////*/
+    // ──────────────────────────────────────────────────────────────────
+    //  State
+    // ──────────────────────────────────────────────────────────────────
 
-    TrustScoring public immutable trustScoring;
-    PayGramToken public immutable payToken;
-
-    address public employer;
+    TrustScoring public trustScoring;
+    address      public payToken;
+    address      public employer;
 
     mapping(address => Employee) private _employees;
-    address[] private _employeeList;
+    address[] public employeeList;
 
-    mapping(uint256 => PendingPayment) private _pendingPayments;
+    mapping(uint256 => PendingPayment) public pendingPayments;
     uint256 public nextPaymentId;
 
-    uint256 public lastPayrollRun;
+    uint256 public totalPayrollsExecuted;
 
-    /*//////////////////////////////////////////////////////////////
-                                EVENTS
-    //////////////////////////////////////////////////////////////*/
+    /// @dev Simple reentrancy lock for payroll execution.
+    bool private _payrollLock;
 
-    event EmployeeAdded(address indexed wallet, uint256 hireDate);
-    event EmployeeRemoved(address indexed wallet);
-    event SalaryUpdated(address indexed wallet);
-    event PayrollExecuted(uint256 timestamp, uint256 employeeCount);
-    event PaymentCreated(uint256 indexed paymentId, address indexed employee, PaymentStatus status);
-    event PaymentReleased(uint256 indexed paymentId);
+    // ──────────────────────────────────────────────────────────────────
+    //  Events
+    // ──────────────────────────────────────────────────────────────────
 
-    /*//////////////////////////////////////////////////////////////
-                                ERRORS
-    //////////////////////////////////////////////////////////////*/
+    event EmployeeAdded(address indexed employee, string role, uint256 hireDate);
+    event EmployeeRemoved(address indexed employee);
+    event EmployeeUpdated(address indexed employee);
+    event SalaryUpdated(address indexed employee);
+    event PayrollExecuted(
+        uint256 indexed payrollId,
+        uint256 timestamp,
+        uint256 employeeCount
+    );
+    event InstantPayment(address indexed employee, uint256 timestamp);
+    event PaymentDelayed(
+        uint256 indexed paymentId,
+        address indexed employee,
+        uint256 releaseTime
+    );
+    event PaymentEscrowed(
+        uint256 indexed paymentId,
+        address indexed employee,
+        string milestone
+    );
+    event PaymentReleased(uint256 indexed paymentId, address indexed employee);
+    event PaymentCancelled(uint256 indexed paymentId, address indexed employee);
+    event TrustScoringUpdated(address indexed newTrustScoring);
+    event PayTokenUpdated(address indexed newPayToken);
+    event EmployerTransferred(
+        address indexed previousEmployer,
+        address indexed newEmployer
+    );
 
-    error CallerNotEmployer();
-    error EmployeeAlreadyExists(address wallet);
-    error EmployeeNotFound(address wallet);
-    error EmployeeInactive(address wallet);
-    error EmployerIsZeroAddress();
-    error WalletIsZeroAddress();
-    error PaymentNotFound(uint256 paymentId);
-    error PaymentNotReleasable(uint256 paymentId);
-    error DelayPeriodNotElapsed(uint256 paymentId);
+    // ──────────────────────────────────────────────────────────────────
+    //  Errors
+    // ──────────────────────────────────────────────────────────────────
 
-    /*//////////////////////////////////////////////////////////////
-                              MODIFIERS
-    //////////////////////////////////////////////////////////////*/
+    error NotEmployer();
+    error EmployeeAlreadyExists();
+    error EmployeeNotFound();
+    error EmployeeNotActive();
+    error PaymentNotFound();
+    error PaymentNotReleasable();
+    error PaymentAlreadyProcessed();
+    error DelayNotElapsed();
+    error PayrollLocked();
+    error BatchTooLarge();
+    error ZeroAddress();
+    error ArrayLengthMismatch();
+
+    // ──────────────────────────────────────────────────────────────────
+    //  Modifiers
+    // ──────────────────────────────────────────────────────────────────
 
     modifier onlyEmployer() {
-        if (msg.sender != employer) revert CallerNotEmployer();
+        if (msg.sender != employer) revert NotEmployer();
         _;
     }
 
-    /*//////////////////////////////////////////////////////////////
-                             CONSTRUCTOR
-    //////////////////////////////////////////////////////////////*/
+    modifier noReentrantPayroll() {
+        if (_payrollLock) revert PayrollLocked();
+        _payrollLock = true;
+        _;
+        _payrollLock = false;
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    //  Constructor
+    // ──────────────────────────────────────────────────────────────────
 
     /**
-     * @param initialOwner     Admin of this contract (for ownership transfer).
-     * @param employerAddress  The employer authorized to manage payroll.
-     * @param scoring          Deployed TrustScoring contract reference.
-     * @param token            Deployed PayGramToken (cPAY) contract reference.
+     * @param initialOwner    Admin (for Ownable2Step).
+     * @param employerAddress The employer authorized to manage payroll.
+     * @param _trustScoring   Deployed TrustScoring contract.
+     * @param _payToken       Deployed PayGramToken (ERC-7984) address.
      */
     constructor(
         address initialOwner,
         address employerAddress,
-        TrustScoring scoring,
-        PayGramToken token
+        address _trustScoring,
+        address _payToken
     ) Ownable(initialOwner) {
-        if (employerAddress == address(0)) revert EmployerIsZeroAddress();
-        employer = employerAddress;
-        trustScoring = scoring;
-        payToken = token;
+        if (employerAddress == address(0)) revert ZeroAddress();
+        if (_trustScoring == address(0)) revert ZeroAddress();
+        if (_payToken == address(0)) revert ZeroAddress();
+
+        employer     = employerAddress;
+        trustScoring = TrustScoring(_trustScoring);
+        payToken     = _payToken;
     }
 
-    /*//////////////////////////////////////////////////////////////
-                       EMPLOYEE MANAGEMENT
-    //////////////////////////////////////////////////////////////*/
+    // ──────────────────────────────────────────────────────────────────
+    //  Employee Management
+    // ──────────────────────────────────────────────────────────────────
 
     /**
-     * @notice Registers a new employee with an encrypted salary.
-     * @param wallet           Employee's receiving address.
-     * @param encryptedSalary  FHE-encrypted salary amount.
-     * @param inputProof       ZKPoK proof for the encrypted salary.
+     * @notice Registers an employee with an FHE-encrypted salary.
+     * @param wallet          Employee's receiving address.
+     * @param encryptedSalary FHE-encrypted salary amount.
+     * @param inputProof      ZKPoK proof for the encrypted value.
+     * @param role            Human-readable role label (e.g. "engineer").
      */
     function addEmployee(
         address wallet,
         externalEuint64 encryptedSalary,
-        bytes calldata inputProof
+        bytes calldata inputProof,
+        string calldata role
     ) external onlyEmployer {
-        if (wallet == address(0)) revert WalletIsZeroAddress();
-        if (_employees[wallet].isActive) revert EmployeeAlreadyExists(wallet);
+        if (wallet == address(0)) revert ZeroAddress();
+        if (_employees[wallet].wallet != address(0))
+            revert EmployeeAlreadyExists();
 
-        euint64 validatedSalary = FHE.fromExternal(encryptedSalary, inputProof);
-        FHE.allowThis(validatedSalary);
-        FHE.allow(validatedSalary, employer);
-
-        _employees[wallet] = Employee({
-            wallet: wallet,
-            encryptedSalary: validatedSalary,
-            isActive: true,
-            hireDate: block.timestamp,
-            lastPayDate: 0
-        });
-        _employeeList.push(wallet);
-
-        emit EmployeeAdded(wallet, block.timestamp);
+        euint64 salary = FHE.fromExternal(encryptedSalary, inputProof);
+        _storeEmployee(wallet, salary, role);
     }
 
     /**
-     * @notice Deactivates an employee.  Their record is retained for audit purposes.
-     * @param wallet Employee address to deactivate.
+     * @notice Registers an employee with a plaintext salary (testing convenience).
+     * @param wallet Employee address.
+     * @param salary Plaintext salary amount.
+     * @param role   Role label.
+     */
+    function addEmployeePlaintext(
+        address wallet,
+        uint64 salary,
+        string calldata role
+    ) external onlyEmployer {
+        if (wallet == address(0)) revert ZeroAddress();
+        if (_employees[wallet].wallet != address(0))
+            revert EmployeeAlreadyExists();
+
+        euint64 encrypted = FHE.asEuint64(salary);
+        _storeEmployee(wallet, encrypted, role);
+    }
+
+    /**
+     * @notice Deactivates an employee. Record retained for audit.
+     * @param wallet Employee to deactivate.
      */
     function removeEmployee(address wallet) external onlyEmployer {
-        if (!_employees[wallet].isActive) revert EmployeeNotFound(wallet);
+        Employee storage emp = _employees[wallet];
+        if (emp.wallet == address(0)) revert EmployeeNotFound();
+        if (!emp.isActive) revert EmployeeNotActive();
 
-        _employees[wallet].isActive = false;
+        emp.isActive = false;
         emit EmployeeRemoved(wallet);
     }
 
     /**
      * @notice Updates the encrypted salary for an active employee.
-     * @param wallet           Employee's address.
-     * @param encryptedSalary  New FHE-encrypted salary.
-     * @param inputProof       ZKPoK proof for the new salary value.
+     * @param wallet          Employee address.
+     * @param encryptedSalary New FHE-encrypted salary.
+     * @param inputProof      ZKPoK proof for the new value.
      */
     function updateSalary(
         address wallet,
         externalEuint64 encryptedSalary,
         bytes calldata inputProof
     ) external onlyEmployer {
-        if (!_employees[wallet].isActive) revert EmployeeNotFound(wallet);
+        _requireActiveEmployee(wallet);
 
-        euint64 validatedSalary = FHE.fromExternal(encryptedSalary, inputProof);
-        FHE.allowThis(validatedSalary);
-        FHE.allow(validatedSalary, employer);
+        euint64 salary = FHE.fromExternal(encryptedSalary, inputProof);
+        _setSalaryPermissions(wallet, salary);
+        _employees[wallet].encryptedSalary = salary;
 
-        _employees[wallet].encryptedSalary = validatedSalary;
         emit SalaryUpdated(wallet);
     }
 
-    /*//////////////////////////////////////////////////////////////
-                         PAYROLL EXECUTION
-    //////////////////////////////////////////////////////////////*/
+    /**
+     * @notice Updates salary from a plaintext value (testing convenience).
+     * @param wallet Employee address.
+     * @param salary New plaintext salary.
+     */
+    function updateSalaryPlaintext(
+        address wallet,
+        uint64 salary
+    ) external onlyEmployer {
+        _requireActiveEmployee(wallet);
+
+        euint64 encrypted = FHE.asEuint64(salary);
+        _setSalaryPermissions(wallet, encrypted);
+        _employees[wallet].encryptedSalary = encrypted;
+
+        emit SalaryUpdated(wallet);
+    }
+
+    /**
+     * @notice Updates the role label for an active employee.
+     * @param wallet  Employee address.
+     * @param newRole New role string.
+     */
+    function updateEmployeeRole(
+        address wallet,
+        string calldata newRole
+    ) external onlyEmployer {
+        _requireActiveEmployee(wallet);
+        _employees[wallet].role = newRole;
+        emit EmployeeUpdated(wallet);
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    //  Payroll Execution
+    // ──────────────────────────────────────────────────────────────────
 
     /**
      * @notice Runs payroll for all active employees.
-     * @dev    For each employee the function:
-     *         1. Reads the encrypted trust score tier via TrustScoring
-     *         2. Routes payment according to the tier (instant / delayed / escrow)
-     *         3. Records a PendingPayment entry for non-instant tiers
+     * @dev    For each active employee:
+     *         - If the employee has a trust score, uses FHE tier evaluation
+     *           to route salary through instant / delayed / escrow paths.
+     *         - If no trust score exists, defaults to escrow (LOW trust).
      *
-     *         Implementation deferred to Day 3 once TrustScoring integration
-     *         tests confirm correct tier evaluation end-to-end.
-     */
-    function executePayroll() external onlyEmployer {
-        // TODO (Day 3): Iterate _employeeList, skip inactive entries.
-        //
-        // For each active employee with a trust score:
-        //   ebool highTrust   = trustScoring.isHighTrust(emp.wallet);
-        //   ebool mediumTrust = trustScoring.isMediumTrust(emp.wallet);
-        //
-        //   HIGH tier   → payToken.transfer(emp.wallet, emp.encryptedSalary)
-        //   MEDIUM tier → create PendingPayment with releaseAfter = block.timestamp + DELAY_PERIOD
-        //   LOW tier    → create PendingPayment as Escrowed (milestone release)
-        //
-        // Use FHE.select to branch without revealing tier:
-        //   euint64 instantAmount = FHE.select(highTrust, emp.encryptedSalary, FHE.asEuint64(0));
-        //   euint64 remaining     = FHE.sub(emp.encryptedSalary, instantAmount);
-        //   euint64 delayedAmount = FHE.select(mediumTrust, remaining, FHE.asEuint64(0));
-        //   euint64 escrowAmount  = FHE.sub(remaining, delayedAmount);
-
-        lastPayrollRun = block.timestamp;
-        emit PayrollExecuted(block.timestamp, _employeeList.length);
-    }
-
-    /**
-     * @notice Releases a delayed or escrowed payment once conditions are met.
-     * @dev    For delayed payments the time-lock must have elapsed.
-     *         For escrowed payments the employer manually confirms milestone completion.
+     *         FHE.select ensures the routing is fully oblivious — no tier
+     *         information is revealed on-chain.
      *
-     *         Implementation deferred to Day 3.
-     * @param paymentId Identifier of the pending payment to release.
+     *         Actual ERC-7984 token transfers will be wired in Day 4.
      */
-    function releasePayment(uint256 paymentId) external onlyEmployer {
-        PendingPayment storage payment = _pendingPayments[paymentId];
-        if (payment.status == PaymentStatus.None) revert PaymentNotFound(paymentId);
-        if (payment.status != PaymentStatus.Delayed && payment.status != PaymentStatus.Escrowed) {
-            revert PaymentNotReleasable(paymentId);
-        }
+    function executePayroll() external onlyEmployer noReentrantPayroll {
+        uint256 processed = 0;
+        uint256 len = employeeList.length;
 
-        if (payment.status == PaymentStatus.Delayed) {
-            if (block.timestamp < payment.releaseAfter) {
-                revert DelayPeriodNotElapsed(paymentId);
+        for (uint256 i = 0; i < len && processed < MAX_BATCH_SIZE; i++) {
+            Employee storage emp = _employees[employeeList[i]];
+            if (!emp.isActive) continue;
+
+            processed++;
+
+            if (!trustScoring.hasScore(emp.wallet)) {
+                // No trust score → default to escrow (LOW trust)
+                _processEscrowPayment(emp);
+            } else {
+                // Scored → FHE tier evaluation and oblivious routing
+                _processWithTrustTier(emp);
             }
+
+            emp.lastPayDate = block.timestamp;
         }
 
-        // TODO (Day 3): Execute the actual encrypted token transfer:
-        //   payToken.transfer(payment.employee, payment.encryptedAmount);
-
-        payment.status = PaymentStatus.Released;
-        emit PaymentReleased(paymentId);
+        totalPayrollsExecuted++;
+        emit PayrollExecuted(
+            totalPayrollsExecuted,
+            block.timestamp,
+            processed
+        );
     }
 
-    /*//////////////////////////////////////////////////////////////
-                            VIEW HELPERS
-    //////////////////////////////////////////////////////////////*/
+    // ──────────────────────────────────────────────────────────────────
+    //  Payment Management
+    // ──────────────────────────────────────────────────────────────────
 
     /**
-     * @notice Returns the number of registered employees (active + inactive).
+     * @notice Releases a delayed or escrowed payment.
+     * @dev    - Delayed: anyone may release once releaseTime has passed.
+     *         - Escrowed: only the employer may release (milestone approval).
+     *         Actual ERC-7984 transfer will be wired in Day 4.
+     * @param paymentId Identifier of the payment to release.
      */
-    function employeeCount() external view returns (uint256) {
-        return _employeeList.length;
+    function releasePayment(uint256 paymentId) external {
+        PendingPayment storage p = pendingPayments[paymentId];
+        if (p.status == PaymentStatus.None) revert PaymentNotFound();
+
+        if (p.status == PaymentStatus.Delayed) {
+            if (block.timestamp < p.releaseTime) revert DelayNotElapsed();
+        } else if (p.status == PaymentStatus.Escrowed) {
+            if (msg.sender != employer) revert NotEmployer();
+        } else {
+            revert PaymentNotReleasable();
+        }
+
+        p.status = PaymentStatus.Released;
+
+        // TODO (Day 4): Execute ERC-7984 confidential transfer
+        // IERC7984(payToken).confidentialTransferFrom(
+        //     employer, p.employee, p.encryptedAmount
+        // );
+
+        emit PaymentReleased(paymentId, p.employee);
     }
 
     /**
-     * @notice Checks whether `wallet` is an active employee.
+     * @notice Cancels a pending payment (delayed or escrowed only).
+     * @param paymentId Identifier of the payment to cancel.
      */
-    function isActiveEmployee(address wallet) external view returns (bool) {
-        return _employees[wallet].isActive;
+    function cancelPayment(uint256 paymentId) external onlyEmployer {
+        PendingPayment storage p = pendingPayments[paymentId];
+        if (p.status == PaymentStatus.None) revert PaymentNotFound();
+        if (
+            p.status != PaymentStatus.Delayed &&
+            p.status != PaymentStatus.Escrowed
+        ) revert PaymentAlreadyProcessed();
+
+        p.status = PaymentStatus.Completed;
+        emit PaymentCancelled(paymentId, p.employee);
     }
 
+    // ──────────────────────────────────────────────────────────────────
+    //  View Functions
+    // ──────────────────────────────────────────────────────────────────
+
     /**
-     * @notice Returns public (non-encrypted) fields for an employee.
+     * @notice Returns non-encrypted employee information.
      * @param wallet Employee address.
-     * @return isActive  Whether the employee is currently active.
-     * @return hireDate  Timestamp when the employee was registered.
-     * @return lastPay   Timestamp of their most recent payroll disbursement.
      */
-    function getEmployeeInfo(
+    function getEmployee(
         address wallet
-    ) external view returns (bool isActive, uint256 hireDate, uint256 lastPay) {
+    )
+        external
+        view
+        returns (
+            address empWallet,
+            bool    isActive,
+            uint256 hireDate,
+            uint256 lastPayDate,
+            string memory role
+        )
+    {
         Employee storage emp = _employees[wallet];
-        if (emp.wallet == address(0)) revert EmployeeNotFound(wallet);
-        return (emp.isActive, emp.hireDate, emp.lastPayDate);
+        if (emp.wallet == address(0)) revert EmployeeNotFound();
+        return (emp.wallet, emp.isActive, emp.hireDate, emp.lastPayDate, emp.role);
     }
 
     /**
-     * @notice Returns the details of a pending payment.
+     * @notice Returns the full employee list (active + inactive addresses).
+     */
+    function getEmployeeList() external view returns (address[] memory) {
+        return employeeList;
+    }
+
+    /**
+     * @notice Returns the count of currently active employees.
+     */
+    function activeEmployeeCount() external view returns (uint256 count) {
+        uint256 len = employeeList.length;
+        for (uint256 i = 0; i < len; i++) {
+            if (_employees[employeeList[i]].isActive) count++;
+        }
+    }
+
+    /**
+     * @notice Returns non-encrypted fields of a pending payment.
      * @param paymentId Payment identifier.
      */
     function getPendingPayment(
@@ -307,10 +432,310 @@ contract PayGramCore is ZamaEthereumConfig, Ownable2Step {
     )
         external
         view
-        returns (address employee, PaymentStatus status, uint256 createdAt, uint256 releaseAfter)
+        returns (
+            address       employee,
+            PaymentStatus status,
+            uint256       createdAt,
+            uint256       releaseTime,
+            string memory milestone
+        )
     {
-        PendingPayment storage p = _pendingPayments[paymentId];
-        if (p.status == PaymentStatus.None) revert PaymentNotFound(paymentId);
-        return (p.employee, p.status, p.createdAt, p.releaseAfter);
+        PendingPayment storage p = pendingPayments[paymentId];
+        if (p.status == PaymentStatus.None) revert PaymentNotFound();
+        return (p.employee, p.status, p.createdAt, p.releaseTime, p.milestone);
+    }
+
+    /**
+     * @notice Returns all pending payment IDs for a given employee.
+     * @param employee Employee address to query.
+     */
+    function getPendingPaymentsForEmployee(
+        address employee
+    ) external view returns (uint256[] memory) {
+        uint256 total = nextPaymentId;
+        uint256 matchCount = 0;
+
+        // First pass: count matches
+        for (uint256 i = 0; i < total; i++) {
+            if (pendingPayments[i].employee == employee) matchCount++;
+        }
+
+        // Second pass: collect IDs
+        uint256[] memory result = new uint256[](matchCount);
+        uint256 idx = 0;
+        for (uint256 i = 0; i < total; i++) {
+            if (pendingPayments[i].employee == employee) {
+                result[idx++] = i;
+            }
+        }
+        return result;
+    }
+
+    /**
+     * @notice Returns IDs of payments that are ready to be released.
+     * @dev    Delayed payments where releaseTime has passed, plus any
+     *         escrowed payments awaiting employer approval.
+     */
+    function getReleasablePayments()
+        external
+        view
+        returns (uint256[] memory)
+    {
+        uint256 total = nextPaymentId;
+        uint256 matchCount = 0;
+
+        for (uint256 i = 0; i < total; i++) {
+            PaymentStatus s = pendingPayments[i].status;
+            if (
+                (s == PaymentStatus.Delayed &&
+                    block.timestamp >= pendingPayments[i].releaseTime) ||
+                s == PaymentStatus.Escrowed
+            ) {
+                matchCount++;
+            }
+        }
+
+        uint256[] memory result = new uint256[](matchCount);
+        uint256 idx = 0;
+        for (uint256 i = 0; i < total; i++) {
+            PaymentStatus s = pendingPayments[i].status;
+            if (
+                (s == PaymentStatus.Delayed &&
+                    block.timestamp >= pendingPayments[i].releaseTime) ||
+                s == PaymentStatus.Escrowed
+            ) {
+                result[idx++] = i;
+            }
+        }
+        return result;
+    }
+
+    /**
+     * @notice Returns true if `wallet` is a registered active employee.
+     */
+    function isActiveEmployee(address wallet) external view returns (bool) {
+        return _employees[wallet].isActive;
+    }
+
+    /**
+     * @notice Total number of registered employees (active + inactive).
+     */
+    function employeeCount() external view returns (uint256) {
+        return employeeList.length;
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    //  Admin Functions
+    // ──────────────────────────────────────────────────────────────────
+
+    /**
+     * @notice Updates the TrustScoring contract reference.
+     * @param newTrustScoring Address of the new TrustScoring contract.
+     */
+    function updateTrustScoring(address newTrustScoring) external onlyOwner {
+        if (newTrustScoring == address(0)) revert ZeroAddress();
+        trustScoring = TrustScoring(newTrustScoring);
+        emit TrustScoringUpdated(newTrustScoring);
+    }
+
+    /**
+     * @notice Updates the ERC-7984 payment token address.
+     * @param newPayToken Address of the new payment token.
+     */
+    function updatePayToken(address newPayToken) external onlyOwner {
+        if (newPayToken == address(0)) revert ZeroAddress();
+        payToken = newPayToken;
+        emit PayTokenUpdated(newPayToken);
+    }
+
+    /**
+     * @notice Transfers the employer role to a new address.
+     * @param newEmployer Address of the new employer.
+     */
+    function transferEmployer(address newEmployer) external onlyOwner {
+        if (newEmployer == address(0)) revert ZeroAddress();
+        address prev = employer;
+        employer = newEmployer;
+        emit EmployerTransferred(prev, newEmployer);
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    //  Internal — Employee Helpers
+    // ──────────────────────────────────────────────────────────────────
+
+    /**
+     * @dev Stores a new Employee struct, sets FHE permissions, updates list.
+     */
+    function _storeEmployee(
+        address wallet,
+        euint64 salary,
+        string calldata role
+    ) internal {
+        _setSalaryPermissions(wallet, salary);
+
+        _employees[wallet] = Employee({
+            wallet:          wallet,
+            encryptedSalary: salary,
+            isActive:        true,
+            hireDate:        block.timestamp,
+            lastPayDate:     0,
+            role:            role
+        });
+        employeeList.push(wallet);
+
+        emit EmployeeAdded(wallet, role, block.timestamp);
+    }
+
+    /**
+     * @dev Grants FHE read permission on a salary ciphertext to the
+     *      contract itself, the employer, and the employee.
+     */
+    function _setSalaryPermissions(address wallet, euint64 salary) internal {
+        FHE.allowThis(salary);
+        FHE.allow(salary, employer);
+        FHE.allow(salary, wallet);
+    }
+
+    /**
+     * @dev Reverts if `wallet` is not a registered, active employee.
+     */
+    function _requireActiveEmployee(address wallet) internal view {
+        Employee storage emp = _employees[wallet];
+        if (emp.wallet == address(0)) revert EmployeeNotFound();
+        if (!emp.isActive) revert EmployeeNotActive();
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    //  Internal — Payroll Processing
+    // ──────────────────────────────────────────────────────────────────
+
+    /**
+     * @dev Routes a scored employee's salary through trust tiers using
+     *      FHE.select for fully oblivious branching.
+     *
+     *      Computes three encrypted amounts (instant / delayed / escrow)
+     *      such that exactly one is non-zero based on the encrypted tier.
+     *      All three paths are always executed — only the correct one
+     *      carries value.
+     */
+    function _processWithTrustTier(Employee storage emp) internal {
+        ebool isHigh = trustScoring.isHighTrust(emp.wallet);
+        ebool isMed  = trustScoring.isMediumTrust(emp.wallet);
+
+        euint64 zero = FHE.asEuint64(0);
+
+        // Oblivious amount computation:
+        // HIGH  → full salary as instant, 0 delayed, 0 escrow
+        // MED   → 0 instant, full salary as delayed, 0 escrow
+        // LOW   → 0 instant, 0 delayed, full salary as escrow
+        euint64 instantAmt = FHE.select(isHigh, emp.encryptedSalary, zero);
+        euint64 remaining  = FHE.sub(emp.encryptedSalary, instantAmt);
+        euint64 delayedAmt = FHE.select(isMed, remaining, zero);
+        euint64 escrowAmt  = FHE.sub(remaining, delayedAmt);
+
+        // Process all three paths (two will carry encrypted zero)
+        _processInstantPayment(emp.wallet, instantAmt);
+        _processDelayedPayment(emp.wallet, delayedAmt);
+        _processEscrowPaymentEncrypted(emp.wallet, escrowAmt);
+    }
+
+    /**
+     * @dev Handles an instant payment (HIGH trust path).
+     *      Actual ERC-7984 transfer will be added in Day 4.
+     */
+    function _processInstantPayment(
+        address employee,
+        euint64 amount
+    ) internal {
+        // TODO (Day 4): Wire actual transfer
+        // FHE.allowThis(amount);
+        // IERC7984(payToken).confidentialTransferFrom(
+        //     employer, employee, amount
+        // );
+
+        // Record for audit trail
+        uint256 id = nextPaymentId++;
+        FHE.allowThis(amount);
+
+        pendingPayments[id] = PendingPayment({
+            id:              id,
+            employee:        employee,
+            encryptedAmount: amount,
+            status:          PaymentStatus.Instant,
+            createdAt:       block.timestamp,
+            releaseTime:     0,
+            milestone:       ""
+        });
+
+        emit InstantPayment(employee, block.timestamp);
+    }
+
+    /**
+     * @dev Handles a delayed payment (MEDIUM trust path).
+     */
+    function _processDelayedPayment(
+        address employee,
+        euint64 amount
+    ) internal {
+        uint256 id          = nextPaymentId++;
+        uint256 releaseTime = block.timestamp + DELAY_PERIOD;
+
+        FHE.allowThis(amount);
+
+        pendingPayments[id] = PendingPayment({
+            id:              id,
+            employee:        employee,
+            encryptedAmount: amount,
+            status:          PaymentStatus.Delayed,
+            createdAt:       block.timestamp,
+            releaseTime:     releaseTime,
+            milestone:       ""
+        });
+
+        emit PaymentDelayed(id, employee, releaseTime);
+    }
+
+    /**
+     * @dev Handles an escrow payment from the FHE routing path.
+     */
+    function _processEscrowPaymentEncrypted(
+        address employee,
+        euint64 amount
+    ) internal {
+        uint256 id = nextPaymentId++;
+
+        FHE.allowThis(amount);
+
+        pendingPayments[id] = PendingPayment({
+            id:              id,
+            employee:        employee,
+            encryptedAmount: amount,
+            status:          PaymentStatus.Escrowed,
+            createdAt:       block.timestamp,
+            releaseTime:     0,
+            milestone:       "Pending employer approval"
+        });
+
+        emit PaymentEscrowed(id, employee, "Pending employer approval");
+    }
+
+    /**
+     * @dev Handles an escrow payment for unscored employees.
+     *      Uses the employee's stored encrypted salary directly.
+     */
+    function _processEscrowPayment(Employee storage emp) internal {
+        uint256 id = nextPaymentId++;
+
+        pendingPayments[id] = PendingPayment({
+            id:              id,
+            employee:        emp.wallet,
+            encryptedAmount: emp.encryptedSalary,
+            status:          PaymentStatus.Escrowed,
+            createdAt:       block.timestamp,
+            releaseTime:     0,
+            milestone:       "Pending employer approval"
+        });
+
+        emit PaymentEscrowed(id, emp.wallet, "Pending employer approval");
     }
 }
