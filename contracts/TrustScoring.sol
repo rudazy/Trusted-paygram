@@ -7,174 +7,350 @@ import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step
 
 /**
  * @title TrustScoring
- * @notice Stores and evaluates encrypted EigenTrust reputation scores for payroll participants.
- *         Scores remain confidential on-chain — tier classification happens entirely within
- *         FHE operations, so neither the contract owner nor external observers can read
- *         the underlying numeric value.
+ * @notice Manages encrypted EigenTrust reputation scores for payroll participants.
+ *         Scores remain fully confidential on-chain. Tier classification (HIGH / MEDIUM / LOW)
+ *         happens entirely within FHE, so neither the contract owner nor external observers
+ *         can read the underlying numeric value without an explicit decryption grant.
  *
  * @dev Trust tiers drive payment routing in PayGramCore:
- *      - HIGH  (>= 75): instant encrypted transfer
- *      - MEDIUM (>= 40): 24-hour delayed release
- *      - LOW    (< 40): milestone-gated escrow
+ *      - HIGH   (score >= 75): instant encrypted transfer
+ *      - MEDIUM (score >= 40): 24-hour delayed release
+ *      - LOW    (score <  40): milestone-gated escrow
+ *
+ *      All FHE comparison and select operations modify state (coprocessor interaction),
+ *      so tier-check functions are intentionally non-view.
  */
 contract TrustScoring is ZamaEthereumConfig, Ownable2Step {
-    /*//////////////////////////////////////////////////////////////
-                               CONSTANTS
-    //////////////////////////////////////////////////////////////*/
+    // ──────────────────────────────────────────────────────────────────
+    //  Constants
+    // ──────────────────────────────────────────────────────────────────
 
-    uint64 public constant HIGH_TRUST_THRESHOLD = 75;
-    uint64 public constant MEDIUM_TRUST_THRESHOLD = 40;
+    uint64  public constant HIGH_TRUST_THRESHOLD   = 75;
+    uint64  public constant MEDIUM_TRUST_THRESHOLD  = 40;
+    uint64  public constant MAX_SCORE               = 100;
+    uint256 public constant SCORE_EXPIRY             = 90 days;
 
-    /*//////////////////////////////////////////////////////////////
-                                STORAGE
-    //////////////////////////////////////////////////////////////*/
+    // ──────────────────────────────────────────────────────────────────
+    //  State
+    // ──────────────────────────────────────────────────────────────────
 
+    /// @dev Encrypted trust score per address.
     mapping(address => euint64) private _trustScores;
+
+    /// @dev Whether a trust score has been recorded for an address.
     mapping(address => bool) private _hasScore;
+
+    /// @dev Addresses authorized to submit trust scores.
     mapping(address => bool) public authorizedOracles;
 
-    /*//////////////////////////////////////////////////////////////
-                                EVENTS
-    //////////////////////////////////////////////////////////////*/
+    /// @dev Timestamp of the most recent score update per address.
+    mapping(address => uint256) public lastScoreUpdate;
 
-    event TrustScoreUpdated(address indexed subject);
-    event OracleStatusChanged(address indexed oracle, bool authorized);
-    event ScoreAccessGranted(address indexed subject, address indexed viewer);
+    /// @dev Total number of addresses with active (non-revoked) trust scores.
+    uint256 public totalScoredAddresses;
 
-    /*//////////////////////////////////////////////////////////////
-                                ERRORS
-    //////////////////////////////////////////////////////////////*/
+    // ──────────────────────────────────────────────────────────────────
+    //  Events
+    // ──────────────────────────────────────────────────────────────────
 
-    error CallerNotOracle();
-    error SubjectHasNoScore(address subject);
-    error OracleIsZeroAddress();
-    error SubjectIsZeroAddress();
+    event TrustScoreUpdated(address indexed account, uint256 timestamp);
+    event OracleAuthorized(address indexed oracle, bool authorized);
+    event TrustScoreRevoked(address indexed account);
+    event ScoreAccessGranted(address indexed account, address indexed allowedAddress);
 
-    /*//////////////////////////////////////////////////////////////
-                              MODIFIERS
-    //////////////////////////////////////////////////////////////*/
+    // ──────────────────────────────────────────────────────────────────
+    //  Errors
+    // ──────────────────────────────────────────────────────────────────
+
+    error UnauthorizedOracle();
+    error AccountNotScored();
+    error ScoreExpired();
+    error InvalidScoreRange();
+    error BatchLengthMismatch();
+    error ZeroAddress();
+
+    // ──────────────────────────────────────────────────────────────────
+    //  Modifiers
+    // ──────────────────────────────────────────────────────────────────
 
     modifier onlyOracle() {
-        if (!authorizedOracles[msg.sender]) revert CallerNotOracle();
+        if (!authorizedOracles[msg.sender]) revert UnauthorizedOracle();
         _;
     }
 
-    /*//////////////////////////////////////////////////////////////
-                             CONSTRUCTOR
-    //////////////////////////////////////////////////////////////*/
+    modifier scored(address account) {
+        if (!_hasScore[account]) revert AccountNotScored();
+        _;
+    }
 
+    modifier notExpired(address account) {
+        if (_isExpired(account)) revert ScoreExpired();
+        _;
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    //  Constructor
+    // ──────────────────────────────────────────────────────────────────
+
+    /**
+     * @param initialOwner Account that owns this contract and can manage oracle access.
+     */
     constructor(address initialOwner) Ownable(initialOwner) {}
 
-    /*//////////////////////////////////////////////////////////////
-                          ORACLE MANAGEMENT
-    //////////////////////////////////////////////////////////////*/
+    // ──────────────────────────────────────────────────────────────────
+    //  Oracle Management
+    // ──────────────────────────────────────────────────────────────────
 
     /**
      * @notice Grants or revokes oracle authorization.
-     * @param oracle   Address of the oracle to modify.
-     * @param allowed  Whether the oracle should be authorized.
+     * @param oracle     Address of the oracle to modify.
+     * @param authorized Whether the oracle should be authorized.
      */
-    function setOracle(address oracle, bool allowed) external onlyOwner {
-        if (oracle == address(0)) revert OracleIsZeroAddress();
-        authorizedOracles[oracle] = allowed;
-        emit OracleStatusChanged(oracle, allowed);
+    function setOracle(address oracle, bool authorized) external onlyOwner {
+        if (oracle == address(0)) revert ZeroAddress();
+        authorizedOracles[oracle] = authorized;
+        emit OracleAuthorized(oracle, authorized);
     }
 
-    /*//////////////////////////////////////////////////////////////
-                         SCORE MANAGEMENT
-    //////////////////////////////////////////////////////////////*/
+    // ──────────────────────────────────────────────────────────────────
+    //  Score Management — Encrypted Input
+    // ──────────────────────────────────────────────────────────────────
 
     /**
-     * @notice Sets or updates an encrypted trust score for `subject`.
-     * @dev    The caller must be an authorized oracle. The encrypted value is validated
-     *         through its zero-knowledge proof before storage.
-     * @param subject          Address whose trust score is being set.
-     * @param encryptedScore   FHE-encrypted score value (0-100 expected range).
-     * @param inputProof       ZKPoK proof binding the ciphertext to the caller.
+     * @notice Sets or updates an encrypted trust score for `account`.
+     * @dev    The encrypted value is validated through its zero-knowledge proof,
+     *         then clamped to [0, 100] via FHE.select.
+     * @param account        Address whose trust score is being set.
+     * @param encryptedScore FHE-encrypted score (expected 0-100).
+     * @param inputProof     ZKPoK proof binding the ciphertext to the caller.
      */
     function setTrustScore(
-        address subject,
+        address account,
         externalEuint64 encryptedScore,
         bytes calldata inputProof
     ) external onlyOracle {
-        if (subject == address(0)) revert SubjectIsZeroAddress();
+        if (account == address(0)) revert ZeroAddress();
 
-        euint64 validated = FHE.fromExternal(encryptedScore, inputProof);
+        euint64 score = FHE.fromExternal(encryptedScore, inputProof);
 
-        _trustScores[subject] = validated;
-        _hasScore[subject] = true;
+        // Clamp to MAX_SCORE: if score > 100, replace with 0 as a sentinel
+        // (oracles should always submit valid ranges; clamping is a safety net)
+        ebool isValid = FHE.le(score, FHE.asEuint64(MAX_SCORE));
+        score = FHE.select(isValid, score, FHE.asEuint64(0));
 
-        FHE.allowThis(validated);
-        FHE.allow(validated, msg.sender);
-
-        emit TrustScoreUpdated(subject);
+        _setScore(account, score);
     }
 
-    /*//////////////////////////////////////////////////////////////
-                          TIER EVALUATION
-    //////////////////////////////////////////////////////////////*/
+    // ──────────────────────────────────────────────────────────────────
+    //  Score Management — Plaintext Convenience
+    // ──────────────────────────────────────────────────────────────────
 
     /**
-     * @notice Evaluates whether `subject` qualifies for the HIGH trust tier.
-     * @dev    Returns an encrypted boolean — the result is not revealed to the caller
-     *         unless they hold a decryption grant.
-     * @param subject Address to evaluate.
-     * @return result  ebool that is true when score >= HIGH_TRUST_THRESHOLD.
+     * @notice Sets a trust score from a plaintext value. Primarily for testing
+     *         and trusted oracle use where the score is known in the clear.
+     * @dev    Clamps `score` to MAX_SCORE before encryption.
+     * @param account Address whose score to set.
+     * @param score   Plaintext score value (0-100).
      */
-    function isHighTrust(address subject) external returns (ebool result) {
-        if (!_hasScore[subject]) revert SubjectHasNoScore(subject);
+    function setTrustScorePlaintext(address account, uint64 score) external onlyOracle {
+        if (account == address(0)) revert ZeroAddress();
 
-        euint64 threshold = FHE.asEuint64(HIGH_TRUST_THRESHOLD);
-        result = FHE.ge(_trustScores[subject], threshold);
+        uint64 clamped = score > MAX_SCORE ? uint64(MAX_SCORE) : score;
+        euint64 encrypted = FHE.asEuint64(clamped);
+
+        _setScore(account, encrypted);
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    //  Score Management — Batch
+    // ──────────────────────────────────────────────────────────────────
+
+    /**
+     * @notice Sets multiple trust scores in a single transaction.
+     * @dev    Uses plaintext values for gas efficiency in batch operations.
+     * @param accounts Array of addresses to score.
+     * @param scores   Array of plaintext scores (each clamped to MAX_SCORE).
+     */
+    function batchSetScores(
+        address[] calldata accounts,
+        uint64[] calldata scores
+    ) external onlyOracle {
+        if (accounts.length != scores.length) revert BatchLengthMismatch();
+
+        for (uint256 i = 0; i < accounts.length; i++) {
+            if (accounts[i] == address(0)) revert ZeroAddress();
+
+            uint64 clamped = scores[i] > MAX_SCORE ? uint64(MAX_SCORE) : scores[i];
+            euint64 encrypted = FHE.asEuint64(clamped);
+            _setScore(accounts[i], encrypted);
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    //  Tier Evaluation
+    // ──────────────────────────────────────────────────────────────────
+
+    /**
+     * @notice Returns an encrypted boolean: true if `account` has HIGH trust (score >= 75).
+     * @dev    Non-view because FHE.ge and FHE.asEuint64 interact with the coprocessor.
+     * @param account Address to evaluate.
+     * @return result  Encrypted boolean — true when score >= HIGH_TRUST_THRESHOLD.
+     */
+    function isHighTrust(
+        address account
+    ) external scored(account) notExpired(account) returns (ebool result) {
+        result = FHE.ge(_trustScores[account], FHE.asEuint64(HIGH_TRUST_THRESHOLD));
     }
 
     /**
-     * @notice Evaluates whether `subject` qualifies for the MEDIUM trust tier.
-     * @param subject Address to evaluate.
-     * @return result  ebool that is true when score >= MEDIUM_TRUST_THRESHOLD.
+     * @notice Returns an encrypted boolean: true if `account` has MEDIUM trust (score >= 40).
+     * @param account Address to evaluate.
+     * @return result  Encrypted boolean — true when score >= MEDIUM_TRUST_THRESHOLD.
      */
-    function isMediumTrust(address subject) external returns (ebool result) {
-        if (!_hasScore[subject]) revert SubjectHasNoScore(subject);
-
-        euint64 threshold = FHE.asEuint64(MEDIUM_TRUST_THRESHOLD);
-        result = FHE.ge(_trustScores[subject], threshold);
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                            ACCESSORS
-    //////////////////////////////////////////////////////////////*/
-
-    /**
-     * @notice Returns the encrypted trust score for `subject`.
-     * @dev    The caller must hold a decryption grant (via `allowScoreAccess`) to
-     *         actually read the plaintext off-chain.
-     * @param subject Address whose score to retrieve.
-     * @return score   The encrypted score handle.
-     */
-    function getTrustScore(address subject) external view returns (euint64 score) {
-        if (!_hasScore[subject]) revert SubjectHasNoScore(subject);
-        score = _trustScores[subject];
+    function isMediumTrust(
+        address account
+    ) external scored(account) notExpired(account) returns (ebool result) {
+        result = FHE.ge(_trustScores[account], FHE.asEuint64(MEDIUM_TRUST_THRESHOLD));
     }
 
     /**
-     * @notice Whether a trust score has been recorded for `subject`.
+     * @notice Returns an encrypted boolean: true if `account` has LOW trust (score < 40).
+     * @param account Address to evaluate.
+     * @return result  Encrypted boolean — true when score < MEDIUM_TRUST_THRESHOLD.
      */
-    function hasScore(address subject) external view returns (bool) {
-        return _hasScore[subject];
+    function isLowTrust(
+        address account
+    ) external scored(account) notExpired(account) returns (ebool result) {
+        result = FHE.lt(_trustScores[account], FHE.asEuint64(MEDIUM_TRUST_THRESHOLD));
     }
 
     /**
-     * @notice Grants `viewer` permission to decrypt the trust score of `subject`.
-     * @dev    Only the contract owner or the oracle that set the score should call this.
-     *         The grant is permanent for the current ciphertext — a score update
-     *         produces a new ciphertext that requires a fresh grant.
-     * @param subject Address whose score to share.
-     * @param viewer  Address that should receive decryption access.
+     * @notice Returns an encrypted tier number: 2 = HIGH, 1 = MEDIUM, 0 = LOW.
+     * @dev    Uses chained FHE.select to compute the tier without decrypting.
+     *         Grants the contract and the owner read access to the result.
+     * @param account Address to evaluate.
+     * @return tier    Encrypted tier value.
      */
-    function allowScoreAccess(address subject, address viewer) external onlyOwner {
-        if (!_hasScore[subject]) revert SubjectHasNoScore(subject);
+    function getTrustTier(
+        address account
+    ) external scored(account) notExpired(account) returns (euint64 tier) {
+        euint64 score = _trustScores[account];
 
-        FHE.allow(_trustScores[subject], viewer);
-        emit ScoreAccessGranted(subject, viewer);
+        ebool isHigh = FHE.ge(score, FHE.asEuint64(HIGH_TRUST_THRESHOLD));
+        ebool isMed  = FHE.ge(score, FHE.asEuint64(MEDIUM_TRUST_THRESHOLD));
+
+        tier = FHE.select(
+            isHigh,
+            FHE.asEuint64(2),
+            FHE.select(isMed, FHE.asEuint64(1), FHE.asEuint64(0))
+        );
+
+        FHE.allowThis(tier);
+        FHE.allow(tier, owner());
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    //  Accessors
+    // ──────────────────────────────────────────────────────────────────
+
+    /**
+     * @notice Returns the encrypted trust score handle for `account`.
+     * @dev    The caller must hold a decryption grant to read the plaintext off-chain.
+     * @param account Address whose score to retrieve.
+     * @return score   Encrypted score handle.
+     */
+    function getTrustScore(
+        address account
+    ) external view scored(account) returns (euint64 score) {
+        score = _trustScores[account];
+    }
+
+    /**
+     * @notice Whether a trust score has been recorded for `account`.
+     */
+    function hasScore(address account) external view returns (bool) {
+        return _hasScore[account];
+    }
+
+    /**
+     * @notice Whether the score for `account` has passed the 90-day expiry window.
+     */
+    function isScoreExpired(address account) external view returns (bool) {
+        if (!_hasScore[account]) return true;
+        return _isExpired(account);
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    //  Access Grants
+    // ──────────────────────────────────────────────────────────────────
+
+    /**
+     * @notice Grants `allowedAddress` permission to decrypt the trust score of `account`.
+     * @dev    Only the contract owner may issue grants. The grant is valid for the
+     *         current ciphertext — a score update produces a new ciphertext requiring
+     *         a fresh grant.
+     * @param account         Address whose score to share.
+     * @param allowedAddress  Address that should receive decryption access.
+     */
+    function allowScoreAccess(
+        address account,
+        address allowedAddress
+    ) external onlyOwner scored(account) {
+        if (allowedAddress == address(0)) revert ZeroAddress();
+
+        FHE.allow(_trustScores[account], allowedAddress);
+        emit ScoreAccessGranted(account, allowedAddress);
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    //  Score Revocation
+    // ──────────────────────────────────────────────────────────────────
+
+    /**
+     * @notice Revokes the trust score for `account`, clearing all associated state.
+     * @dev    The encrypted ciphertext handle becomes inaccessible after deletion.
+     *         totalScoredAddresses is decremented.
+     * @param account Address whose score to revoke.
+     */
+    function revokeScore(address account) external onlyOracle scored(account) {
+        _trustScores[account] = euint64.wrap(0);
+        _hasScore[account] = false;
+        lastScoreUpdate[account] = 0;
+        totalScoredAddresses--;
+
+        emit TrustScoreRevoked(account);
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    //  Internal Helpers
+    // ──────────────────────────────────────────────────────────────────
+
+    /**
+     * @dev Shared score-storage logic used by all public setters.
+     *      Handles FHE permission grants, timestamp tracking, and counter management.
+     */
+    function _setScore(address account, euint64 score) internal {
+        FHE.allowThis(score);
+        FHE.allow(score, owner());
+
+        bool isNewScore = !_hasScore[account];
+
+        _trustScores[account] = score;
+        _hasScore[account] = true;
+        lastScoreUpdate[account] = block.timestamp;
+
+        if (isNewScore) {
+            totalScoredAddresses++;
+        }
+
+        emit TrustScoreUpdated(account, block.timestamp);
+    }
+
+    /**
+     * @dev Returns true if the score for `account` was last updated more than
+     *      SCORE_EXPIRY seconds ago.
+     */
+    function _isExpired(address account) internal view returns (bool) {
+        return block.timestamp > lastScoreUpdate[account] + SCORE_EXPIRY;
     }
 }
