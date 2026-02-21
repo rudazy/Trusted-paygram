@@ -21,7 +21,9 @@ import {IERC7984} from "@openzeppelin/confidential-contracts/interfaces/IERC7984
  *      3. LOW trust   (score <  40) → milestone-gated escrow
  *
  *      Employees without a trust score are treated as LOW trust.
- *      Actual ERC-7984 token transfers are wired in Day 4 integration.
+ *      The PayGramCore contract holds tokens pre-funded by the employer.
+ *      All payroll disbursements are confidential ERC-7984 transfers from
+ *      the contract's own balance to employees.
  */
 contract PayGramCore is ZamaEthereumConfig, Ownable2Step {
     // ──────────────────────────────────────────────────────────────────
@@ -300,7 +302,8 @@ contract PayGramCore is ZamaEthereumConfig, Ownable2Step {
      *         FHE.select ensures the routing is fully oblivious — no tier
      *         information is revealed on-chain.
      *
-     *         Actual ERC-7984 token transfers will be wired in Day 4.
+     *         Instant payments transfer immediately from the contract balance.
+     *         Delayed and escrowed payments are held until released.
      */
     function executePayroll() external onlyEmployer noReentrantPayroll {
         uint256 processed = 0;
@@ -339,7 +342,8 @@ contract PayGramCore is ZamaEthereumConfig, Ownable2Step {
      * @notice Releases a delayed or escrowed payment.
      * @dev    - Delayed: anyone may release once releaseTime has passed.
      *         - Escrowed: only the employer may release (milestone approval).
-     *         Actual ERC-7984 transfer will be wired in Day 4.
+     *         Executes a confidential ERC-7984 transfer from the contract's
+     *         token balance to the employee.
      * @param paymentId Identifier of the payment to release.
      */
     function releasePayment(uint256 paymentId) external {
@@ -356,10 +360,9 @@ contract PayGramCore is ZamaEthereumConfig, Ownable2Step {
 
         p.status = PaymentStatus.Released;
 
-        // TODO (Day 4): Execute ERC-7984 confidential transfer
-        // IERC7984(payToken).confidentialTransferFrom(
-        //     employer, p.employee, p.encryptedAmount
-        // );
+        // Execute confidential transfer from contract balance to employee
+        FHE.allow(p.encryptedAmount, payToken);
+        IERC7984(payToken).confidentialTransfer(p.employee, p.encryptedAmount);
 
         emit PaymentReleased(paymentId, p.employee);
     }
@@ -511,6 +514,14 @@ contract PayGramCore is ZamaEthereumConfig, Ownable2Step {
     }
 
     /**
+     * @notice Returns the contract's encrypted token balance.
+     * @dev    Callers must hold an FHE decryption grant to read the plaintext.
+     */
+    function getContractBalance() external view returns (euint64) {
+        return IERC7984(payToken).confidentialBalanceOf(address(this));
+    }
+
+    /**
      * @notice Returns true if `wallet` is a registered active employee.
      */
     function isActiveEmployee(address wallet) external view returns (bool) {
@@ -641,21 +652,21 @@ contract PayGramCore is ZamaEthereumConfig, Ownable2Step {
 
     /**
      * @dev Handles an instant payment (HIGH trust path).
-     *      Actual ERC-7984 transfer will be added in Day 4.
+     *      Executes an immediate confidential transfer from the contract's
+     *      token balance to the employee.
      */
     function _processInstantPayment(
         address employee,
         euint64 amount
     ) internal {
-        // TODO (Day 4): Wire actual transfer
-        // FHE.allowThis(amount);
-        // IERC7984(payToken).confidentialTransferFrom(
-        //     employer, employee, amount
-        // );
+        FHE.allowThis(amount);
+
+        // Execute immediate confidential transfer
+        FHE.allow(amount, payToken);
+        IERC7984(payToken).confidentialTransfer(employee, amount);
 
         // Record for audit trail
         uint256 id = nextPaymentId++;
-        FHE.allowThis(amount);
 
         pendingPayments[id] = PendingPayment({
             id:              id,
