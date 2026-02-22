@@ -1,19 +1,19 @@
 # Trusted PayGram — Frontend
 
-> Placeholder for Week 2 development.
+Next.js 14 web application for the Trusted PayGram confidential payroll system.
 
-## Planned Stack
+## Stack
 
-- React 18 + Vite
-- ethers.js v6
-- fhevmjs (Zama client library for encrypted input creation)
-- TailwindCSS
+- **Next.js 14** — App Router with TypeScript
+- **ethers.js v6** — Wallet connection and contract interaction
+- **TailwindCSS** — Dark theme UI
+- **fhevmjs** — Zama FHE client (optional, runtime-loaded)
 
-## Planned Views
+## Pages
 
-- **Employer Dashboard** — employee roster, payroll trigger, payment status
-- **Employee Portal** — encrypted balance display, payment history
-- **Trust Overview** — tier badges per employee (no raw scores visible)
+- **/** — Landing page with feature overview
+- **/employer** — Employer dashboard: add employees, execute payroll, view payment history
+- **/employee** — Employee portal: view salary (encrypted), trust tier, payment history
 
 ## Getting Started
 
@@ -23,4 +23,17 @@ npm install
 npm run dev
 ```
 
-> Implementation begins Day 5 per the [development plan](../DEVELOPMENT_PLAN.md).
+Open [http://localhost:3000](http://localhost:3000).
+
+## Build
+
+```bash
+npm run build
+npm start
+```
+
+## Contract Integration
+
+Contract ABIs are stored in `src/lib/abis/`. After deployment, update the addresses in `src/lib/constants.ts` under `CONTRACT_ADDRESSES`.
+
+FHE encryption requires the `fhevmjs` package and a running FHEVM node. Without it, the app falls back to plaintext helpers for local development.

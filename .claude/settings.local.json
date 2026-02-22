@@ -8,7 +8,9 @@
       "Bash(npm install:*)",
       "Bash(npx hardhat compile:*)",
       "Bash(npx hardhat test)",
-      "Bash(npx hardhat test:*)"
+      "Bash(npx hardhat test:*)",
+      "Bash(node -e:*)",
+      "Bash(npx next build)"
     ]
   }
 }
