@@ -37,3 +37,4 @@ deployments/localhost/
 # Logs
 *.log
 npm-debug.log*
+".claude" 
