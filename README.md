@@ -283,7 +283,7 @@ Tests are structured with a `try/catch + this.skip()` pattern: non-FHE logic run
 - [x] Deployment to Sepolia with Etherscan verification
 - [x] Frontend: employer dashboard, employee portal, wallet connection
 - [x] Network switching UX (Sepolia auto-switch, wrong network banner)
-- [ ] Live FHE encryption in frontend via fhevmjs
+- [x] Live FHE encryption in frontend via fhevmjs
 - [ ] Oracle integration for real EigenTrust score submission
 - [ ] Multi-employer support with role-based access
 - [ ] Payment release automation (keeper-compatible delayed releases)
