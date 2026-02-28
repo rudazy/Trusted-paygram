@@ -146,7 +146,15 @@ See [docs/SETUP.md](docs/SETUP.md) for detailed configuration.
 
 ## Deployed Contracts
 
-> Sepolia Testnet &mdash; deployed 2026-02-28
+> **Ethereum Mainnet** &mdash; deployed 2026-02-28
+
+| Contract | Address | Etherscan |
+|:---------|:--------|:----------|
+| **TrustScoring** | `0xaa3ae25ebac250ff67f4d9e3195c4c7610055067` | [View](https://etherscan.io/address/0xaa3ae25ebac250ff67f4d9e3195c4c7610055067#code) |
+| **PayGramToken** | `0x41fa55cefd625e50fa1ae08baea87ac5c8be0ad7` | [View](https://etherscan.io/address/0x41fa55cefd625e50fa1ae08baea87ac5c8be0ad7#code) |
+| **PayGramCore** | `0xDC41FF140129846f7a2e63A5CcE73e9d767CB4e1` | [View](https://etherscan.io/address/0xDC41FF140129846f7a2e63A5CcE73e9d767CB4e1#code) |
+
+> **Sepolia Testnet** &mdash; deployed 2026-02-28
 
 | Contract | Address | Etherscan |
 |:---------|:--------|:----------|

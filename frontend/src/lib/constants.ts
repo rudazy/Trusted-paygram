@@ -13,7 +13,7 @@ export const SUPPORTED_CHAINS = {
   },
 } as const;
 
-/** Deployed contract addresses — Sepolia (2026-02-28) */
+/** Deployed contract addresses — Sepolia & Mainnet (2026-02-28) */
 export const CONTRACT_ADDRESSES: Record<
   number,
   { trustScoring: string; payGramCore: string; payGramToken: string }
@@ -24,9 +24,9 @@ export const CONTRACT_ADDRESSES: Record<
     payGramCore: "0x331048736e7dC599E46187CaBa00dcC46952a7d7",
   },
   [SUPPORTED_CHAINS.mainnet.chainId]: {
-    trustScoring: "0x0000000000000000000000000000000000000000",
-    payGramCore: "0x0000000000000000000000000000000000000000",
-    payGramToken: "0x0000000000000000000000000000000000000000",
+    trustScoring: "0xaa3ae25ebac250ff67f4d9e3195c4c7610055067",
+    payGramToken: "0x41fa55cefd625e50fa1ae08baea87ac5c8be0ad7",
+    payGramCore: "0xDC41FF140129846f7a2e63A5CcE73e9d767CB4e1",
   },
 };
 

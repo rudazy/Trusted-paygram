@@ -1,0 +1,17 @@
+{
+  "network": "mainnet",
+  "chainId": 1,
+  "deployer": "0x60C05e2d820CE989E944ED4e7bb33bAEB8705c62",
+  "contracts": {
+    "TrustScoring": "0xaa3ae25ebac250ff67f4d9e3195c4c7610055067",
+    "PayGramToken": "0x41fa55cefd625e50fa1ae08baea87ac5c8be0ad7",
+    "PayGramCore": "0xDC41FF140129846f7a2e63A5CcE73e9d767CB4e1"
+  },
+  "transactions": {
+    "TrustScoring": "0x2f64fa35818267678deccfe9f4d19cf349b78dfdb23eeaa50077f637837a63c9",
+    "PayGramToken": "0xa9038b3f1ee209d6ef730a72eaf785ec4e2ae10ea640208417b490476b531d19",
+    "PayGramCore": "0x006490628532f34f851ebf8ecd0885e4fe8c1bb21c83bece509409d700917054"
+  },
+  "initialSupply": "0",
+  "deployedAt": "2026-02-28T17:58:02.087Z"
+}
