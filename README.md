@@ -1,15 +1,29 @@
+<div align="center">
+
 # Trusted PayGram
 
 **Confidential Trust-Gated Payroll on Zama FHEVM**
 
-[![Solidity](https://img.shields.io/badge/Solidity-0.8.24-363636?logo=solidity)](https://soliditylang.org/)
-[![FHEVM](https://img.shields.io/badge/Zama_FHEVM-v0.9-7B3FE4)](https://docs.zama.ai/fhevm)
-[![ERC-7984](https://img.shields.io/badge/ERC--7984-Confidential_Token-3C3C3D)](https://eips.ethereum.org/EIPS/eip-7984)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+Encrypted salaries. On-chain reputation. Zero data leakage.
+
+[![Built with Zama](https://img.shields.io/badge/Built_with-Zama_FHEVM-7B3FE4?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiPjxyZWN0IHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgcng9IjQiIGZpbGw9IiM3QjNGRTQiLz48L3N2Zz4=)](https://docs.zama.ai/fhevm)
+[![ERC-7984](https://img.shields.io/badge/ERC--7984-Confidential_Token-3C3C3D?style=flat-square)](https://eips.ethereum.org/EIPS/eip-7984)
+[![Solidity](https://img.shields.io/badge/Solidity-0.8.27-363636?style=flat-square&logo=solidity)](https://soliditylang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
+
+[Architecture](#architecture) &#8226; [Quick Start](#quick-start) &#8226; [Deployed Contracts](#deployed-contracts) &#8226; [Privacy Model](#privacy-model) &#8226; [Tech Stack](#tech-stack)
+
+</div>
 
 ---
 
-Trusted PayGram is a fully confidential onchain payroll system where companies pay employees using **ERC-7984 encrypted tokens** while incorporating **EigenTrust-based reputation scoring** to gate payment flows.  Salary amounts, trust scores, and transaction details remain encrypted throughout — the smart contracts make decisions on ciphertext without ever decrypting.
+## What Is This?
+
+Traditional payroll systems expose sensitive financial data at every layer. Employers see everyone's salary. Payment processors see transaction amounts. Blockchains make it worse: every balance and transfer is public by default.
+
+**Trusted PayGram** solves this with Fully Homomorphic Encryption. Salaries, trust scores, and payment amounts are encrypted end-to-end. The smart contracts compute on ciphertext directly. Nobody sees the numbers, but the math still works.
+
+The system adds a second layer: **trust-gated payment routing**. Each employee has an encrypted reputation score derived from EigenTrust. High-trust employees receive instant payments. Medium-trust employees have a 24-hour delay. Low-trust or new employees go through milestone-gated escrow. The routing decision happens entirely under encryption.
 
 > Built for the **Zama Developer Program Special Bounty Track**.
 
@@ -18,130 +32,269 @@ Trusted PayGram is a fully confidential onchain payroll system where companies p
 ## Architecture
 
 ```
-                            ┌──────────────────────┐
-                            │    Oracle Network     │
-                            │  (EigenTrust scores)  │
-                            └──────────┬───────────┘
-                                       │ setTrustScore(encrypted)
-                                       ▼
-┌─────────────┐  executePayroll  ┌─────────────────┐  isHighTrust?   ┌──────────────────┐
-│  Employer    │────────────────▶│  PayGramCore     │───────────────▶│  TrustScoring     │
-│  Dashboard   │                 │  (Payroll Engine)│◀───────────────│  (FHE Tier Eval)  │
-└─────────────┘                 └────────┬─────────┘  ebool result   └──────────────────┘
-                                         │
-                          ┌──────────────┼──────────────┐
-                          │              │              │
-                     HIGH tier      MEDIUM tier     LOW tier
-                     (instant)     (24h delay)     (escrow)
-                          │              │              │
-                          ▼              ▼              ▼
-                   ┌──────────────────────────────────────┐
-                   │         PayGramToken (cPAY)          │
-                   │      ERC-7984 Confidential Token     │
-                   │    Encrypted balances & transfers    │
-                   └──────────────────────────────────────┘
+                              ┌──────────────────────────┐
+                              │     Oracle Network       │
+                              │   (EigenTrust Scores)    │
+                              └────────────┬─────────────┘
+                                           │ setTrustScore(encrypted)
+                                           v
+┌──────────────┐  executePayroll   ┌───────────────────┐  isHighTrust?   ┌──────────────────────┐
+│   Employer   │──────────────────>│   PayGramCore     │────────────────>│   TrustScoring       │
+│   Dashboard  │                   │  (Payroll Engine)  │<────────────────│  (FHE Tier Eval)     │
+└──────────────┘                   └─────────┬─────────┘   ebool result  └──────────────────────┘
+                                             │
+                              ┌──────────────┼──────────────┐
+                              │              │              │
+                         HIGH tier      MEDIUM tier     LOW tier
+                        (instant)      (24h delay)     (escrow)
+                              │              │              │
+                              v              v              v
+                     ┌──────────────────────────────────────────┐
+                     │          PayGramToken (cPAY)             │
+                     │       ERC-7984 Confidential Token        │
+                     │     Encrypted balances & transfers       │
+                     └──────────────────────────────────────────┘
+                              │              │              │
+                              v              v              v
+                     ┌──────────────────────────────────────────┐
+                     │      Zama FHE Coprocessor (Sepolia)      │
+                     │  ACL · TFHEExecutor · KMSVerifier        │
+                     └──────────────────────────────────────────┘
 ```
 
-## Features
+Three contracts, one coprocessor, zero plaintext.
 
-| Feature | Description |
-|---|---|
-| **Encrypted Salaries** | Salary amounts stored and transferred as FHE ciphertexts — invisible to observers |
-| **Confidential Trust Scores** | EigenTrust reputation evaluated entirely under encryption |
-| **Trust-Gated Routing** | Payment method selected by FHE comparison — no plaintext branch |
-| **ERC-7984 Token** | Native confidential token standard with encrypted balances |
-| **Time-Locked Payments** | Medium-trust payments held for 24 hours before release |
-| **Escrow with Milestones** | Low-trust payments require employer confirmation |
-| **Observer Auditing** | Planned employer audit access via FHE grants |
+---
 
-## Trust Tiers
+## Trust-Gated Payment Flows
 
-| Tier | Score Range | Payment Method | Rationale |
-|------|-------------|----------------|-----------|
-| **HIGH** | 75 – 100 | Instant encrypted transfer | Established, reliable contributors |
-| **MEDIUM** | 40 – 74 | 24-hour delayed release | Moderate history, time buffer for disputes |
-| **LOW** | 0 – 39 | Escrowed with milestone release | New or flagged participants, manual approval |
+| Tier | Score Range | Routing | Release Mechanism |
+|:-----|:-----------|:--------|:------------------|
+| **HIGH** | 75 - 100 | Instant encrypted transfer | Immediate |
+| **MEDIUM** | 40 - 74 | 24-hour delayed release | Automatic after time lock |
+| **LOW** | 0 - 39 | Milestone-gated escrow | Manual employer approval |
+| **Unscored** | N/A | Defaults to escrow | Manual employer approval |
 
-## Tech Stack
+The routing decision is fully oblivious. All three payment paths execute on every payroll run, but only the correct path carries a non-zero encrypted amount:
 
-| Layer | Technology |
-|-------|------------|
-| Smart Contracts | Solidity 0.8.24 |
-| FHE Runtime | Zama FHEVM v0.9 |
-| Token Standard | ERC-7984 (OpenZeppelin Confidential Contracts) |
-| Framework | Hardhat + TypeScript |
-| Access Control | OpenZeppelin Ownable2Step |
-| Target Networks | Sepolia Testnet, Ethereum Mainnet |
+```solidity
+function _processWithTrustTier(Employee storage emp) internal {
+    ebool isHigh = trustScoring.isHighTrust(emp.wallet);
+    ebool isMed  = trustScoring.isMediumTrust(emp.wallet);
+
+    euint64 zero = FHE.asEuint64(0);
+
+    // Oblivious routing: exactly one path carries the salary
+    euint64 instantAmt = FHE.select(isHigh, emp.encryptedSalary, zero);
+    euint64 remaining  = FHE.sub(emp.encryptedSalary, instantAmt);
+    euint64 delayedAmt = FHE.select(isMed, remaining, zero);
+    euint64 escrowAmt  = FHE.sub(remaining, delayedAmt);
+
+    _processInstantPayment(emp.wallet, instantAmt);
+    _processDelayedPayment(emp.wallet, delayedAmt);
+    _processEscrowPaymentEncrypted(emp.wallet, escrowAmt);
+}
+```
+
+No `if` statements. No branching on decrypted values. The coprocessor evaluates `FHE.select` on ciphertext, and the chain never learns which tier an employee belongs to.
+
+---
 
 ## Quick Start
 
+### Prerequisites
+
+- Node.js >= 18
+- MetaMask or compatible wallet
+- Sepolia ETH for gas ([faucet](https://sepoliafaucet.com))
+
+### Run the Frontend
+
 ```bash
-# Clone and install
-git clone https://github.com/<your-org>/trusted-paygram.git
-cd trusted-paygram
+git clone https://github.com/rudazy/Trusted-paygram.git
+cd Trusted-paygram/frontend
 npm install
-
-# Compile contracts
-npm run compile
-
-# Run test suite
-npm test
-
-# Start local node
-npm run node
-
-# Deploy locally (separate terminal)
-npm run deploy:localhost
+npm run dev
 ```
 
-See [docs/SETUP.md](docs/SETUP.md) for detailed configuration including Sepolia deployment.
+Open [http://localhost:3000](http://localhost:3000) and connect your wallet to Sepolia.
 
-## Contract Addresses
+### Deploy Your Own
 
-> Deployed addresses will be listed here after Sepolia deployment.
+```bash
+# Install dependencies
+cd Trusted-paygram
+npm install
 
-| Contract | Address | Explorer |
-|----------|---------|----------|
-| TrustScoring | TBD | — |
-| PayGramToken | TBD | — |
-| PayGramCore | TBD | — |
+# Configure environment
+cp .env.example .env
+# Edit .env with your PRIVATE_KEY, SEPOLIA_RPC_URL, ETHERSCAN_API_KEY
 
-## ERC-7984 Integration
+# Compile contracts
+npx hardhat compile
 
-Trusted PayGram uses the [ERC-7984](https://eips.ethereum.org/EIPS/eip-7984) confidential token standard implemented by OpenZeppelin.  This provides:
+# Deploy to Sepolia
+npx hardhat run scripts/deploy-sepolia.ts --network sepolia
 
-- **Encrypted balances** — token holdings are FHE ciphertexts, not public `uint256` values
-- **Confidential transfers** — transfer amounts are encrypted; only sender, recipient, and authorized observers can decrypt
-- **Selective disclosure** — the employer can be granted observer access for payroll auditing without exposing data to the network
+# Verify on Etherscan
+npx hardhat verify --network sepolia <ADDRESS> <CONSTRUCTOR_ARGS>
+```
 
-The `PayGramToken` contract extends `ERC7984` and mints `cPAY` tokens that serve as the payroll medium within the system.
+See [docs/SETUP.md](docs/SETUP.md) for detailed configuration.
+
+---
+
+## Deployed Contracts
+
+> Sepolia Testnet &mdash; deployed 2026-02-28
+
+| Contract | Address | Etherscan |
+|:---------|:--------|:----------|
+| **TrustScoring** | `0xbFF470d080D0BC36CcDcE8f5d1D6C98517F15df7` | [View](https://sepolia.etherscan.io/address/0xbFF470d080D0BC36CcDcE8f5d1D6C98517F15df7#code) |
+| **PayGramToken** | `0xC97C848E7021AdFC36269ddc5e39E54939E81704` | [View](https://sepolia.etherscan.io/address/0xC97C848E7021AdFC36269ddc5e39E54939E81704#code) |
+| **PayGramCore** | `0x331048736e7dC599E46187CaBa00dcC46952a7d7` | [View](https://sepolia.etherscan.io/address/0x331048736e7dC599E46187CaBa00dcC46952a7d7#code) |
+
+All contracts are verified with source code on Etherscan.
+
+---
+
+## Privacy Model
+
+### What's Encrypted
+
+- [x] Employee salary amounts (stored as `euint64`)
+- [x] Trust reputation scores (stored as `euint64`)
+- [x] Trust tier classification (computed via `FHE.select`, never decrypted on-chain)
+- [x] Token balances (ERC-7984 encrypted balances)
+- [x] Transfer amounts (confidential transfers between contract and employees)
+- [x] Payment routing decision (oblivious branching, no plaintext conditionals)
+
+### Who Can See What
+
+| Data | Employer | Employee | Public | Contract |
+|:-----|:--------:|:--------:|:------:|:--------:|
+| Salary amount | Granted | Own only | No | Yes |
+| Trust score | Granted | Own only | No | Yes |
+| Trust tier | No | No | No | Computed |
+| Token balance | No | Own only | No | Yes |
+| Payment status | Yes | Own only | Event only | Yes |
+| Employee roster | Yes | No | Events | Yes |
+| Payment timing | Yes | Own only | Events | Yes |
+
+"Granted" means the address holds an FHE decryption grant issued via `FHE.allow()`. "Computed" means the value is used in encrypted computation but never materialized as plaintext.
+
+---
+
+## Tech Stack
+
+| Layer | Technology | Purpose |
+|:------|:-----------|:--------|
+| Smart Contracts | Solidity 0.8.27 | Contract logic |
+| FHE Runtime | Zama FHEVM v0.9 | Encrypted computation on-chain |
+| Token Standard | ERC-7984 | Confidential token with encrypted balances |
+| Access Control | OpenZeppelin Confidential Contracts | ObserverAccess, Ownable2Step, Pausable |
+| Framework | Hardhat + TypeScript | Compilation, testing, deployment |
+| Frontend | Next.js 14 (App Router) | Employer dashboard, employee portal |
+| Styling | Tailwind CSS | Glassmorphism UI with custom theme |
+| Wallet | ethers.js v6 | MetaMask integration, contract calls |
+| FHE Client | fhevmjs | Client-side encryption for encrypted inputs |
+
+---
 
 ## Project Structure
 
 ```
 contracts/
-  TrustScoring.sol    — Encrypted trust score storage and tier evaluation
-  PayGramCore.sol     — Payroll engine with trust-gated payment routing
-  PayGramToken.sol    — ERC-7984 confidential token (cPAY)
-deploy/
-  deploy.ts           — Hardhat-deploy script for all contracts
+  TrustScoring.sol          Encrypted trust score storage and tier evaluation
+  PayGramCore.sol           Payroll engine with trust-gated payment routing
+  PayGramToken.sol          ERC-7984 confidential token (cPAY)
+
+frontend/
+  src/
+    app/                    Next.js pages (landing, employer, employee)
+    components/
+      employer/             AddEmployee, EmployeeList, ExecutePayroll, PayrollHistory
+      employee/             SalaryView, PaymentHistory
+      wallet/               ConnectButton (4-state: no wallet, connecting, wrong network, connected)
+      layout/               Navbar, Footer, NetworkBanner
+      ui/                   GlassCard, Button, Badge, StatusDot, TrustBadge, Tabs, Dialog
+    hooks/                  useWallet, useFHE, useContracts
+    lib/                    constants, contracts, fhe, mockData, utils
+    providers/              Web3Provider (wallet + FHE + contracts context)
+
+scripts/
+  deploy-sepolia.ts         Deployment script (ethers-based, single-key)
+
 test/
-  TrustScoring.test.ts
-  PayGramCore.test.ts
-  integration.test.ts
+  TrustScoring.test.ts      33 passing, 35 FHE-pending
+  PayGramCore.test.ts        45 passing, 38 FHE-pending
+  integration.test.ts       34 passing, 25 FHE-pending
+
 docs/
-  ARCHITECTURE.md     — System design and data flows
-  TRUST_MODEL.md      — EigenTrust adaptation and privacy model
-  SETUP.md            — Installation and deployment guide
+  ARCHITECTURE.md           System design and data flows
+  TRUST_MODEL.md            EigenTrust adaptation and privacy model
+  SETUP.md                  Installation and deployment guide
 ```
 
-## Acknowledgments
+---
 
-- [Zama](https://zama.ai/) — FHEVM and the fhevm-solidity library
-- [OpenZeppelin](https://openzeppelin.com/) — Confidential Contracts (ERC-7984) and access control primitives
-- [EigenTrust](https://nlp.stanford.edu/pubs/eigentrust.pdf) — Distributed reputation framework adapted for on-chain scoring
-- [Intuition Protocol](https://intuition.systems/) — Inspiration for trust-weighted decentralized identity
+## Testing
 
-## License
+```bash
+# Run all tests
+npm test
 
-[MIT](LICENSE)
+# Run with gas reporting
+REPORT_GAS=true npm test
+
+# Run specific test file
+npx hardhat test test/TrustScoring.test.ts
+
+# Run only non-FHE tests (no coprocessor needed)
+npx hardhat test --grep "should"
+```
+
+Tests are structured with a `try/catch + this.skip()` pattern: non-FHE logic runs on vanilla Hardhat, and FHE-dependent tests are automatically skipped when the coprocessor is unavailable.
+
+**112 tests passing** (98 FHE-pending, awaiting coprocessor integration).
+
+---
+
+## Key Innovations
+
+1. **Oblivious payment routing** &mdash; Trust tier evaluation and salary routing happen entirely under FHE. The contract executes all three payment paths on every payroll run; `FHE.select` ensures only the correct path carries value. No observer can determine which tier an employee falls into.
+
+2. **EigenTrust reputation on-chain** &mdash; Encrypted reputation scores are submitted by authorized oracles and stored as `euint64`. Tier boundaries are evaluated with `FHE.ge` comparisons that never reveal the underlying score, even to the contract owner.
+
+3. **Batch payroll with bounded gas** &mdash; A single `executePayroll()` processes up to 50 employees per transaction. Each employee requires exactly 3 FHE operations for tier evaluation plus 3 payment record writes, keeping gas predictable.
+
+4. **ERC-7984 observer access** &mdash; The `ObserverAccess` extension allows employers to set an observer on employee token accounts for payroll auditing. Observers can verify encrypted disbursements without accessing other employees' data.
+
+5. **Escrow with milestone gating** &mdash; Low-trust and unscored employees receive payments into escrow. The employer must explicitly approve release, providing a dispute resolution mechanism without exposing payment amounts.
+
+---
+
+## Roadmap
+
+- [x] TrustScoring contract with encrypted tier evaluation
+- [x] PayGramCore payroll engine with oblivious routing
+- [x] PayGramToken (ERC-7984) with supply cap, pause, observer access
+- [x] Full test suite (112 tests)
+- [x] Deployment to Sepolia with Etherscan verification
+- [x] Frontend: employer dashboard, employee portal, wallet connection
+- [x] Network switching UX (Sepolia auto-switch, wrong network banner)
+- [ ] Live FHE encryption in frontend via fhevmjs
+- [ ] Oracle integration for real EigenTrust score submission
+- [ ] Multi-employer support with role-based access
+- [ ] Payment release automation (keeper-compatible delayed releases)
+- [ ] Mainnet deployment
+
+---
+
+<div align="center">
+
+Built by [**Ludarep**](https://github.com/rudazy)
+
+[Zama FHEVM](https://docs.zama.ai/fhevm) &#8226; [ERC-7984](https://eips.ethereum.org/EIPS/eip-7984) &#8226; [OpenZeppelin Confidential Contracts](https://github.com/OpenZeppelin/openzeppelin-contracts/tree/master/contracts) &#8226; [EigenTrust](https://nlp.stanford.edu/pubs/eigentrust.pdf)
+
+</div>
