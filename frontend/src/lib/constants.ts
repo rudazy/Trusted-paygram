@@ -13,15 +13,15 @@ export const SUPPORTED_CHAINS = {
   },
 } as const;
 
-/** Placeholder addresses — replace after deployment */
+/** Deployed contract addresses — Sepolia (2026-02-28) */
 export const CONTRACT_ADDRESSES: Record<
   number,
   { trustScoring: string; payGramCore: string; payGramToken: string }
 > = {
   [SUPPORTED_CHAINS.sepolia.chainId]: {
-    trustScoring: "0x0000000000000000000000000000000000000000",
-    payGramCore: "0x0000000000000000000000000000000000000000",
-    payGramToken: "0x0000000000000000000000000000000000000000",
+    trustScoring: "0xbFF470d080D0BC36CcDcE8f5d1D6C98517F15df7",
+    payGramToken: "0xC97C848E7021AdFC36269ddc5e39E54939E81704",
+    payGramCore: "0x331048736e7dC599E46187CaBa00dcC46952a7d7",
   },
   [SUPPORTED_CHAINS.mainnet.chainId]: {
     trustScoring: "0x0000000000000000000000000000000000000000",

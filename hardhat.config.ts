@@ -1,13 +1,19 @@
-import { HardhatUserConfig, vars } from "hardhat/config";
+import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
 import "hardhat-deploy";
+import "dotenv/config";
 
-const MNEMONIC = vars.get(
-  "MNEMONIC",
-  "test test test test test test test test test test test junk"
-);
-const INFURA_API_KEY = vars.get("INFURA_API_KEY", "");
-const ETHERSCAN_API_KEY = vars.get("ETHERSCAN_API_KEY", "");
+// ── Environment variables (loaded from .env) ─────────────────────────
+const PRIVATE_KEY = process.env.PRIVATE_KEY ?? "";
+const SEPOLIA_RPC_URL =
+  process.env.SEPOLIA_RPC_URL ?? "https://rpc.sepolia.org";
+const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY ?? "";
+
+// Validate private key format for live networks
+const sepoliaAccounts: string[] =
+  PRIVATE_KEY.length >= 64
+    ? [PRIVATE_KEY.startsWith("0x") ? PRIVATE_KEY : `0x${PRIVATE_KEY}`]
+    : [];
 
 const config: HardhatUserConfig = {
   solidity: {
@@ -30,27 +36,14 @@ const config: HardhatUserConfig = {
       chainId: 31337,
     },
     sepolia: {
-      url: `https://sepolia.infura.io/v3/${INFURA_API_KEY}`,
-      accounts: {
-        mnemonic: MNEMONIC,
-        count: 10,
-      },
+      url: SEPOLIA_RPC_URL,
+      accounts: sepoliaAccounts,
       chainId: 11155111,
-    },
-    mainnet: {
-      url: `https://mainnet.infura.io/v3/${INFURA_API_KEY}`,
-      accounts: {
-        mnemonic: MNEMONIC,
-        count: 5,
-      },
-      chainId: 1,
     },
   },
   namedAccounts: {
     deployer: 0,
-    employer: 1,
-    employee1: 2,
-    employee2: 3,
+    employer: 0, // Same as deployer for single-key deployments
   },
   etherscan: {
     apiKey: ETHERSCAN_API_KEY,

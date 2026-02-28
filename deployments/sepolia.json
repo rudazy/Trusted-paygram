@@ -1,0 +1,17 @@
+{
+  "network": "sepolia",
+  "chainId": 11155111,
+  "deployer": "0x60C05e2d820CE989E944ED4e7bb33bAEB8705c62",
+  "contracts": {
+    "TrustScoring": "0xbFF470d080D0BC36CcDcE8f5d1D6C98517F15df7",
+    "PayGramToken": "0xC97C848E7021AdFC36269ddc5e39E54939E81704",
+    "PayGramCore": "0x331048736e7dC599E46187CaBa00dcC46952a7d7"
+  },
+  "transactions": {
+    "TrustScoring": "0xf6d414e3992500a1fe10d2ec9d94594db292d4cb2423c8bc346d6127d0beaf00",
+    "PayGramToken": "0x81ea077ed46b096d3d3277b88b548a2ecf3fbbe211b3f68c418744955457fdd1",
+    "PayGramCore": "0x99a20daefbf5ae2f4d7745b28092df4f3ba32ff5ef54ede298dc52b5cca64399"
+  },
+  "initialSupply": "1000000",
+  "deployedAt": "2026-02-28T15:41:12.788Z"
+}
