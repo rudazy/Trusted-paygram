@@ -29,7 +29,37 @@ const jetbrains = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "Trusted PayGram — Confidential Trust-Gated Payroll",
   description:
-    "Pay your team with confidential stablecoins. Trust scores gate every payment flow. Salaries stay encrypted — only employees see their own. Built with Zama FHEVM and ERC-7984.",
+    "Pay your team with encrypted stablecoins. Trust scores gate every payment flow. Built on Zama Protocol with ERC-7984.",
+  icons: {
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico", sizes: "32x32" },
+    ],
+    apple: "/apple-touch-icon.png",
+  },
+  openGraph: {
+    title: "Trusted PayGram — Confidential Trust-Gated Payroll",
+    description:
+      "Pay your team with encrypted stablecoins. Trust scores gate every payment flow. Built on Zama Protocol with ERC-7984.",
+    url: "https://trusted-paygram.vercel.app",
+    siteName: "Trusted PayGram",
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "Trusted PayGram — Confidential Trust-Gated Payroll on Zama FHEVM",
+      },
+    ],
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Trusted PayGram — Confidential Trust-Gated Payroll",
+    description:
+      "Pay your team with encrypted stablecoins. Trust scores gate every payment flow. Built on Zama Protocol with ERC-7984.",
+    images: ["/og-image.png"],
+  },
 };
 
 export const viewport: Viewport = {

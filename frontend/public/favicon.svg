@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00e5a0"/>
+      <stop offset="100%" stop-color="#00b87a"/>
+    </linearGradient>
+    <linearGradient id="lockGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0a0a0f"/>
+      <stop offset="100%" stop-color="#12121a"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Shield body -->
+  <path
+    d="M256 28 L462 120 C462 120 472 320 256 484 C40 320 50 120 50 120 Z"
+    fill="url(#shieldGrad)"
+    stroke="#00e5a0"
+    stroke-width="4"
+    filter="url(#glow)"
+  />
+
+  <!-- Inner shield cutout -->
+  <path
+    d="M256 60 L432 140 C432 140 440 310 256 452 C72 310 80 140 80 140 Z"
+    fill="url(#lockGrad)"
+  />
+
+  <!-- Lock body -->
+  <rect x="196" y="250" width="120" height="100" rx="16" fill="url(#shieldGrad)" opacity="0.95"/>
+
+  <!-- Lock shackle -->
+  <path
+    d="M210 250 L210 210 C210 175 230 155 256 155 C282 155 302 175 302 210 L302 250"
+    stroke="url(#shieldGrad)"
+    stroke-width="22"
+    stroke-linecap="round"
+    fill="none"
+    opacity="0.95"
+  />
+
+  <!-- Keyhole circle -->
+  <circle cx="256" cy="290" r="16" fill="#0a0a0f"/>
+
+  <!-- Keyhole slot -->
+  <rect x="250" y="296" width="12" height="28" rx="4" fill="#0a0a0f"/>
+</svg>

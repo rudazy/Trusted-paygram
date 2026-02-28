@@ -41,6 +41,7 @@
     "hardhat": "^2.22.17",
     "hardhat-deploy": "^0.14.0",
     "hardhat-gas-reporter": "^1.0.9",
+    "sharp": "^0.34.5",
     "solhint": "^5.0.4",
     "solidity-coverage": "^0.8.14",
     "ts-node": "^10.9.2",
