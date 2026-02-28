@@ -1,8 +1,15 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { RefreshCw, Users, Lock } from "lucide-react";
 import { useWeb3 } from "@/providers/Web3Provider";
-import { truncateAddress, formatTimestamp } from "@/lib/contracts";
+import { formatTimestamp } from "@/lib/contracts";
+import { MOCK_EMPLOYEES, type MockEmployee } from "@/lib/mockData";
+import AddressDisplay from "@/components/ui/AddressDisplay";
+import TrustBadge from "@/components/ui/TrustBadge";
+import StatusDot from "@/components/ui/StatusDot";
+import Badge from "@/components/ui/Badge";
+import Button from "@/components/ui/Button";
 
 interface EmployeeData {
   wallet: string;
@@ -12,13 +19,21 @@ interface EmployeeData {
   role: string;
 }
 
-export default function EmployeeList() {
+interface EmployeeListProps {
+  onAddEmployee: () => void;
+}
+
+export default function EmployeeList({ onAddEmployee }: EmployeeListProps) {
   const { payGramCore, contractsReady } = useWeb3();
   const [employees, setEmployees] = useState<EmployeeData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [useMock, setUseMock] = useState(false);
 
   const fetchEmployees = useCallback(async () => {
-    if (!payGramCore) return;
+    if (!payGramCore) {
+      setUseMock(true);
+      return;
+    }
 
     setIsLoading(true);
     try {
@@ -41,8 +56,9 @@ export default function EmployeeList() {
       }
 
       setEmployees(empData);
+      setUseMock(empData.length === 0);
     } catch {
-      // Contract not available or no employees
+      setUseMock(true);
     } finally {
       setIsLoading(false);
     }
@@ -51,68 +67,125 @@ export default function EmployeeList() {
   useEffect(() => {
     if (contractsReady) {
       fetchEmployees();
+    } else {
+      setUseMock(true);
     }
   }, [contractsReady, fetchEmployees]);
 
+  const displayData: (EmployeeData | MockEmployee)[] = useMock
+    ? MOCK_EMPLOYEES
+    : employees;
+
+  function isMock(item: EmployeeData | MockEmployee): item is MockEmployee {
+    return "tier" in item;
+  }
+
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
+    <div>
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-white">Employee Roster</h3>
-        <button
-          onClick={fetchEmployees}
-          disabled={isLoading || !contractsReady}
-          className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 text-xs font-medium border border-slate-700 transition-colors"
-        >
-          {isLoading ? "Loading..." : "Refresh"}
-        </button>
+        <h3 className="text-sm font-heading font-bold text-text">
+          Employee Roster
+        </h3>
+        <div className="flex items-center gap-2">
+          {useMock && (
+            <Badge variant="warning" size="sm">
+              Demo Data
+            </Badge>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={fetchEmployees}
+            disabled={isLoading}
+          >
+            <RefreshCw size={13} className={isLoading ? "animate-spin" : ""} />
+            Refresh
+          </Button>
+          <Button variant="primary" size="sm" onClick={onAddEmployee}>
+            Add Employee
+          </Button>
+        </div>
       </div>
 
-      {!contractsReady ? (
-        <p className="text-sm text-slate-500">
-          Connect wallet to view employees
-        </p>
-      ) : employees.length === 0 ? (
-        <p className="text-sm text-slate-500">No employees registered yet</p>
+      {displayData.length === 0 ? (
+        <div className="glass-card-static p-12 text-center">
+          <Users size={40} className="mx-auto mb-3 text-text-muted" />
+          <p className="text-sm font-medium text-text mb-1">No employees yet</p>
+          <p className="text-xs text-text-muted mb-4">
+            Add your first team member to get started
+          </p>
+          <Button size="sm" onClick={onAddEmployee}>
+            Add Employee
+          </Button>
+        </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-slate-500 border-b border-slate-800">
-                <th className="pb-3 font-medium">Address</th>
-                <th className="pb-3 font-medium">Role</th>
-                <th className="pb-3 font-medium">Status</th>
-                <th className="pb-3 font-medium">Hire Date</th>
-                <th className="pb-3 font-medium">Last Paid</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/50">
-              {employees.map((emp) => (
-                <tr key={emp.wallet} className="text-slate-300">
-                  <td className="py-3 font-mono text-xs">
-                    {truncateAddress(emp.wallet)}
-                  </td>
-                  <td className="py-3">{emp.role}</td>
-                  <td className="py-3">
-                    <span
-                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                        emp.isActive
-                          ? "bg-emerald-900/50 text-emerald-400"
-                          : "bg-red-900/50 text-red-400"
-                      }`}
-                    >
-                      {emp.isActive ? "Active" : "Inactive"}
-                    </span>
-                  </td>
-                  <td className="py-3 text-xs text-slate-400">
-                    {formatTimestamp(emp.hireDate)}
-                  </td>
-                  <td className="py-3 text-xs text-slate-400">
-                    {formatTimestamp(emp.lastPayDate)}
-                  </td>
+        <div className="glass-card-static overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-text-muted border-b border-white/[0.06]">
+                  <th className="px-4 py-3 font-medium text-xs">Status</th>
+                  <th className="px-4 py-3 font-medium text-xs">Address</th>
+                  <th className="px-4 py-3 font-medium text-xs">Role</th>
+                  <th className="px-4 py-3 font-medium text-xs">Trust Tier</th>
+                  <th className="px-4 py-3 font-medium text-xs">Salary</th>
+                  <th className="px-4 py-3 font-medium text-xs">Hire Date</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-white/[0.03]">
+                {displayData.map((item, idx) => {
+                  const m = isMock(item);
+                  const addr = m ? item.address : item.wallet;
+                  const active = m
+                    ? item.status === "active"
+                    : item.isActive;
+                  const roleName = m ? item.role : item.role;
+                  const tier = m ? item.tier : "unscored";
+                  const hireDate = m
+                    ? new Date(item.hireDate).toLocaleDateString("en-US", {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                      })
+                    : formatTimestamp(item.hireDate);
+
+                  return (
+                    <tr
+                      key={addr + idx}
+                      className="text-text-secondary hover:bg-white/[0.02] transition-colors"
+                    >
+                      <td className="px-4 py-3">
+                        <StatusDot
+                          status={active ? "active" : "inactive"}
+                          size="md"
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <AddressDisplay address={addr} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant="outline" size="sm">
+                          {roleName}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <TrustBadge tier={tier} size="sm" />
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1.5 text-xs text-text-muted font-mono">
+                          <Lock size={10} />
+                          Encrypted
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-text-muted">
+                        {hireDate}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

@@ -1,9 +1,23 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { Lock, AlertCircle, CheckCircle } from "lucide-react";
 import { useWeb3 } from "@/providers/Web3Provider";
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
+import Dialog from "@/components/ui/Dialog";
 
-export default function AddEmployee() {
+interface AddEmployeeProps {
+  open: boolean;
+  onClose: () => void;
+  onSuccess?: () => void;
+}
+
+export default function AddEmployee({
+  open,
+  onClose,
+  onSuccess,
+}: AddEmployeeProps) {
   const { payGramCore, address, encrypt, contractsReady } = useWeb3();
   const [wallet, setWallet] = useState("");
   const [salary, setSalary] = useState("");
@@ -13,6 +27,18 @@ export default function AddEmployee() {
     type: "success" | "error";
     message: string;
   } | null>(null);
+
+  function resetForm() {
+    setWallet("");
+    setSalary("");
+    setRole("");
+    setStatus(null);
+  }
+
+  function handleClose() {
+    resetForm();
+    onClose();
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -27,12 +53,10 @@ export default function AddEmployee() {
         throw new Error("Salary must be a positive number");
       }
 
-      // Try encrypted path first, fall back to plaintext
       const coreAddress = await payGramCore.getAddress();
       const result = await encrypt(salaryNum, coreAddress, address);
 
       if (result.encrypted && result.handles && result.inputProof) {
-        // FHE path: send encrypted salary
         const tx = await payGramCore.addEmployee(
           wallet,
           result.handles[0],
@@ -41,7 +65,6 @@ export default function AddEmployee() {
         );
         await tx.wait();
       } else {
-        // Plaintext fallback (testing / local dev)
         const tx = await payGramCore.addEmployeePlaintext(
           wallet,
           salaryNum,
@@ -51,9 +74,10 @@ export default function AddEmployee() {
       }
 
       setStatus({ type: "success", message: "Employee added successfully" });
-      setWallet("");
-      setSalary("");
-      setRole("");
+      setTimeout(() => {
+        handleClose();
+        onSuccess?.();
+      }, 1500);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to add employee";
@@ -64,80 +88,83 @@ export default function AddEmployee() {
   }
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
-      <h3 className="text-lg font-semibold text-white mb-4">Add Employee</h3>
+    <Dialog
+      open={open}
+      onClose={handleClose}
+      title="Add Employee"
+      description="Register a new team member with encrypted salary"
+    >
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label
-            htmlFor="emp-wallet"
-            className="block text-sm text-slate-400 mb-1"
-          >
-            Wallet Address
-          </label>
-          <input
-            id="emp-wallet"
-            type="text"
-            value={wallet}
-            onChange={(e) => setWallet(e.target.value)}
-            placeholder="0x..."
-            required
-            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-emerald-600 transition-colors"
-          />
-        </div>
-        <div>
-          <label
-            htmlFor="emp-salary"
-            className="block text-sm text-slate-400 mb-1"
-          >
-            Salary (cPAY)
-          </label>
-          <input
-            id="emp-salary"
-            type="number"
-            value={salary}
-            onChange={(e) => setSalary(e.target.value)}
-            placeholder="5000"
-            min="1"
-            required
-            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-emerald-600 transition-colors"
-          />
-        </div>
-        <div>
-          <label
-            htmlFor="emp-role"
-            className="block text-sm text-slate-400 mb-1"
-          >
-            Role
-          </label>
-          <input
-            id="emp-role"
-            type="text"
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            placeholder="Engineer"
-            required
-            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-emerald-600 transition-colors"
-          />
-        </div>
+        <Input
+          label="Wallet Address"
+          value={wallet}
+          onChange={(e) => setWallet(e.target.value)}
+          placeholder="0x..."
+          required
+          hint="Employee's Ethereum address"
+        />
 
-        <button
-          type="submit"
-          disabled={isSubmitting || !contractsReady}
-          className="w-full px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
-        >
-          {isSubmitting ? "Encrypting & Submitting..." : "Add Employee (Encrypted)"}
-        </button>
+        <Input
+          label="Monthly Salary (cUSDC)"
+          type="number"
+          value={salary}
+          onChange={(e) => setSalary(e.target.value)}
+          placeholder="5000"
+          min="1"
+          required
+          hint="Will be encrypted using FHE before storing on-chain"
+        />
+
+        <Input
+          label="Role"
+          value={role}
+          onChange={(e) => setRole(e.target.value)}
+          placeholder="e.g. Senior Engineer"
+          required
+        />
+
+        <div className="pt-2 space-y-3">
+          <Button
+            type="submit"
+            loading={isSubmitting}
+            disabled={!contractsReady}
+            className="w-full"
+            size="lg"
+          >
+            <Lock size={14} />
+            {isSubmitting ? "Encrypting & Submitting..." : "Add Employee (Encrypted)"}
+          </Button>
+
+          {!contractsReady && (
+            <p className="flex items-center gap-1.5 text-xs text-warning">
+              <AlertCircle size={12} />
+              Connect wallet to a supported network first
+            </p>
+          )}
+
+          <p className="text-[11px] text-text-muted leading-relaxed">
+            Salary will be encrypted using FHE before storing on-chain. Only the
+            employee can decrypt their own salary.
+          </p>
+        </div>
 
         {status && (
-          <p
-            className={`text-sm ${
-              status.type === "success" ? "text-emerald-400" : "text-red-400"
+          <div
+            className={`flex items-center gap-2 p-3 rounded-lg text-sm ${
+              status.type === "success"
+                ? "bg-primary-muted text-primary"
+                : "bg-danger-muted text-danger"
             }`}
           >
+            {status.type === "success" ? (
+              <CheckCircle size={14} />
+            ) : (
+              <AlertCircle size={14} />
+            )}
             {status.message}
-          </p>
+          </div>
         )}
       </form>
-    </div>
+    </Dialog>
   );
 }

@@ -13,13 +13,16 @@ interface Web3ContextValue {
   signer: ethers.JsonRpcSigner | null;
   chainId: number | null;
   chainName: string | null;
+  hasWallet: boolean;
   isConnected: boolean;
   isLoading: boolean;
   isSupportedChain: boolean;
+  isSepolia: boolean;
   walletError: string | null;
   connect: () => Promise<void>;
   disconnect: () => void;
   switchChain: (chainId: number) => Promise<void>;
+  switchToSepolia: () => Promise<void>;
 
   // FHE
   fheReady: boolean;
@@ -55,13 +58,16 @@ export function Web3Provider({ children }: { children: React.ReactNode }) {
     signer: wallet.signer,
     chainId: wallet.chainId,
     chainName: wallet.chainName,
+    hasWallet: wallet.hasWallet,
     isConnected: wallet.isConnected,
     isLoading: wallet.isLoading,
     isSupportedChain: wallet.isSupportedChain,
+    isSepolia: wallet.isSepolia,
     walletError: wallet.error,
     connect: wallet.connect,
     disconnect: wallet.disconnect,
     switchChain: wallet.switchChain,
+    switchToSepolia: wallet.switchToSepolia,
     fheReady: fhe.isInitialized,
     fheError: fhe.error,
     encrypt: fhe.encrypt,

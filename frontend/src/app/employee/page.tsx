@@ -1,69 +1,203 @@
 "use client";
 
+import Link from "next/link";
+import {
+  ChevronRight,
+  Wallet,
+  ExternalLink,
+  Shield,
+  ShieldCheck,
+  Clock,
+  Lock,
+  MessageSquare,
+  RefreshCw,
+} from "lucide-react";
 import { useWeb3 } from "@/providers/Web3Provider";
-import { truncateAddress } from "@/lib/contracts";
+import AddressDisplay from "@/components/ui/AddressDisplay";
+import TrustBadge from "@/components/ui/TrustBadge";
+import Badge from "@/components/ui/Badge";
+import GlassCard from "@/components/ui/GlassCard";
+import NetworkBanner from "@/components/layout/NetworkBanner";
 import SalaryView from "@/components/employee/SalaryView";
 import PaymentHistory from "@/components/employee/PaymentHistory";
 
 export default function EmployeePortal() {
-  const { address, isConnected, chainName, isSupportedChain } = useWeb3();
+  const { address, isConnected, isSupportedChain } = useWeb3();
+
+  const showPortal = isConnected && isSupportedChain;
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-1.5 text-xs text-text-muted mb-6">
+        <Link href="/" className="hover:text-text transition-colors">
+          Home
+        </Link>
+        <ChevronRight size={12} />
+        <span className="text-text-secondary">Employee</span>
+      </div>
+
+      {/* Network Banner */}
+      <NetworkBanner />
+
+      {/* Page Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Employee Portal</h1>
-          <p className="text-sm text-slate-400 mt-1">
+          <h1 className="text-2xl font-heading font-bold text-text">
+            Employee Portal
+          </h1>
+          <p className="text-sm text-text-secondary mt-1">
             View your salary, trust tier, and payment history
           </p>
         </div>
-        {isConnected && (
-          <div className="text-right">
-            <p className="text-xs text-slate-500">Connected as</p>
-            <p className="text-sm font-mono text-slate-300">
-              {truncateAddress(address ?? "")}
-            </p>
-            {chainName && (
-              <p className="text-xs text-slate-500 mt-0.5">{chainName}</p>
-            )}
+        {isConnected && address && (
+          <div className="flex items-center gap-3">
+            <AddressDisplay address={address} />
+            <TrustBadge tier="high" size="md" />
           </div>
         )}
       </div>
 
-      {!isConnected ? (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-12 text-center">
-          <svg
-            className="w-12 h-12 text-slate-600 mx-auto mb-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth={1.5}
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"
-            />
-          </svg>
-          <h2 className="text-lg font-semibold text-white mb-2">
-            Connect Your Wallet
+      {!showPortal && (
+        <GlassCard className="p-12 text-center">
+          <Wallet size={48} className="mx-auto mb-4 text-text-muted" />
+          <h2 className="text-lg font-heading font-bold text-text mb-2">
+            {!isConnected ? "Connect Your Wallet" : "Switch Network"}
           </h2>
-          <p className="text-sm text-slate-400">
-            Connect your wallet to view your employment details
+          <p className="text-sm text-text-secondary mb-1">
+            {!isConnected
+              ? "Connect your wallet to view your employment details"
+              : "Please switch to Sepolia to access your portal"}
           </p>
-        </div>
-      ) : !isSupportedChain ? (
-        <div className="rounded-xl border border-red-900/50 bg-red-950/30 p-8 text-center">
-          <p className="text-sm text-red-400">
-            Please switch to Sepolia or Ethereum Mainnet.
+          <p className="text-xs text-text-muted">
+            Showing demo data below
           </p>
-        </div>
-      ) : (
-        <div className="space-y-6">
+        </GlassCard>
+      )}
+
+      {/* ─── Main Content ─── */}
+      <div className="grid lg:grid-cols-3 gap-6 mt-8">
+        {/* Left column — wider */}
+        <div className="lg:col-span-2 space-y-6">
           <SalaryView />
           <PaymentHistory />
         </div>
-      )}
+
+        {/* Right column — narrower */}
+        <div className="space-y-6">
+          {/* Trust Score Card */}
+          <GlassCard className="p-6" variant="primary">
+            <h3 className="text-sm font-heading font-bold text-text mb-4">
+              Trust Score
+            </h3>
+
+            <div className="text-center py-4">
+              <TrustBadge tier="high" size="lg" />
+            </div>
+
+            {/* Score meter */}
+            <div className="mt-4 space-y-2">
+              <div className="flex items-center justify-between text-[10px] text-text-muted">
+                <span>0</span>
+                <span>40</span>
+                <span>75</span>
+                <span>100</span>
+              </div>
+              <div className="relative h-2 rounded-full bg-white/[0.05] overflow-hidden">
+                <div className="absolute inset-y-0 left-0 w-[40%] bg-danger/40 rounded-l-full" />
+                <div className="absolute inset-y-0 left-[40%] w-[35%] bg-warning/40" />
+                <div className="absolute inset-y-0 left-[75%] w-[25%] bg-primary/40 rounded-r-full" />
+                {/* Indicator */}
+                <div className="absolute top-1/2 -translate-y-1/2 left-[82%] w-3 h-3 rounded-full bg-primary border-2 border-background shadow-lg shadow-primary/30" />
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-2 text-xs text-text-muted">
+              <div className="flex items-center gap-2">
+                <ShieldCheck size={12} className="text-primary" />
+                <span>
+                  75-100: Instant encrypted transfer
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Clock size={12} className="text-warning" />
+                <span>40-74: 24-hour delayed release</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Lock size={12} className="text-danger" />
+                <span>0-39: Milestone-gated escrow</span>
+              </div>
+            </div>
+
+            <p className="mt-4 text-[10px] text-text-muted">
+              Score expires in 24 days
+            </p>
+          </GlassCard>
+
+          {/* Quick Actions */}
+          <div className="glass-card-static p-5">
+            <h3 className="text-sm font-heading font-bold text-text mb-3">
+              Quick Actions
+            </h3>
+            <div className="space-y-2">
+              <a
+                href={
+                  address
+                    ? `https://sepolia.etherscan.io/address/${address}`
+                    : "#"
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:text-text hover:bg-white/[0.03] transition-colors"
+              >
+                <ExternalLink size={14} />
+                View on Explorer
+              </a>
+              <button
+                type="button"
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:text-text hover:bg-white/[0.03] transition-colors text-left"
+              >
+                <MessageSquare size={14} />
+                Contact Employer
+              </button>
+              <button
+                type="button"
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:text-text hover:bg-white/[0.03] transition-colors text-left"
+              >
+                <RefreshCw size={14} />
+                Request Score Update
+              </button>
+            </div>
+          </div>
+
+          {/* FHE Info Card */}
+          <div className="glass-card-static p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Shield size={14} className="text-secondary" />
+              <h3 className="text-sm font-heading font-bold text-text">
+                Privacy
+              </h3>
+            </div>
+            <div className="space-y-2 text-xs text-text-muted leading-relaxed">
+              <p>
+                Your salary and trust score are encrypted using Fully
+                Homomorphic Encryption (FHE). Only you can decrypt your own
+                data.
+              </p>
+              <p>
+                Your employer cannot see individual salary amounts. Payroll
+                routing happens entirely within encrypted computation.
+              </p>
+            </div>
+            <div className="mt-3">
+              <Badge variant="secondary" size="sm">
+                <Lock size={10} />
+                FHE Protected
+              </Badge>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

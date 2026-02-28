@@ -18,6 +18,9 @@ const SUPPORTED_CHAIN_IDS: number[] = Object.values(SUPPORTED_CHAINS).map(
   (c) => c.chainId
 );
 
+const SEPOLIA_CHAIN_ID = SUPPORTED_CHAINS.sepolia.chainId; // 11155111
+const SEPOLIA_HEX = "0xaa36a7";
+
 export function useWallet() {
   const [state, setState] = useState<WalletState>({
     address: null,
@@ -28,6 +31,13 @@ export function useWallet() {
     isLoading: false,
     error: null,
   });
+
+  const [hasWallet, setHasWallet] = useState(false);
+
+  // Detect wallet on mount (client-side only)
+  useEffect(() => {
+    setHasWallet(typeof window !== "undefined" && !!window.ethereum);
+  }, []);
 
   const connect = useCallback(async () => {
     if (!window.ethereum) {
@@ -96,6 +106,50 @@ export function useWallet() {
     }
   }, []);
 
+  const switchToSepolia = useCallback(async () => {
+    if (!window.ethereum) return;
+
+    try {
+      await window.ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: SEPOLIA_HEX }],
+      });
+    } catch (err: unknown) {
+      // Error code 4902 = chain not added to wallet
+      const switchError = err as { code?: number };
+      if (switchError.code === 4902) {
+        try {
+          await window.ethereum.request({
+            method: "wallet_addEthereumChain",
+            params: [
+              {
+                chainId: SEPOLIA_HEX,
+                chainName: "Sepolia Testnet",
+                rpcUrls: ["https://rpc.sepolia.org"],
+                blockExplorerUrls: ["https://sepolia.etherscan.io"],
+                nativeCurrency: {
+                  name: "ETH",
+                  symbol: "ETH",
+                  decimals: 18,
+                },
+              },
+            ],
+          });
+        } catch (addErr) {
+          const message =
+            addErr instanceof Error
+              ? addErr.message
+              : "Failed to add Sepolia network";
+          setState((prev) => ({ ...prev, error: message }));
+        }
+      } else {
+        const message =
+          err instanceof Error ? err.message : "Failed to switch to Sepolia";
+        setState((prev) => ({ ...prev, error: message }));
+      }
+    }
+  }, []);
+
   // Listen for account and chain changes
   useEffect(() => {
     if (!window.ethereum) return;
@@ -149,12 +203,17 @@ export function useWallet() {
     ? SUPPORTED_CHAIN_IDS.includes(state.chainId)
     : false;
 
+  const isSepolia = state.chainId === SEPOLIA_CHAIN_ID;
+
   return {
     ...state,
+    hasWallet,
     chainName,
     isSupportedChain,
+    isSepolia,
     connect,
     disconnect,
     switchChain,
+    switchToSepolia,
   };
 }

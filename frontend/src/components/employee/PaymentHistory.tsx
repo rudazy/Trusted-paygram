@@ -1,9 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { RefreshCw, FileText, Lock } from "lucide-react";
 import { useWeb3 } from "@/providers/Web3Provider";
 import { PAYMENT_STATUS } from "@/lib/constants";
 import { formatTimestamp } from "@/lib/contracts";
+import { MOCK_EMPLOYEE_PAYMENTS } from "@/lib/mockData";
+import Badge from "@/components/ui/Badge";
+import Button from "@/components/ui/Button";
 
 interface PaymentRecord {
   id: number;
@@ -17,9 +21,13 @@ export default function PaymentHistory() {
   const { payGramCore, address, contractsReady } = useWeb3();
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [useMock, setUseMock] = useState(false);
 
   const fetchPayments = useCallback(async () => {
-    if (!payGramCore || !address) return;
+    if (!payGramCore || !address) {
+      setUseMock(true);
+      return;
+    }
 
     setIsLoading(true);
     try {
@@ -43,90 +51,161 @@ export default function PaymentHistory() {
       }
 
       setPayments(records.reverse());
+      setUseMock(records.length === 0);
     } catch {
-      // Contract not available
+      setUseMock(true);
     } finally {
       setIsLoading(false);
     }
   }, [payGramCore, address]);
 
   useEffect(() => {
-    if (contractsReady && address) fetchPayments();
+    if (contractsReady && address) {
+      fetchPayments();
+    } else {
+      setUseMock(true);
+    }
   }, [contractsReady, address, fetchPayments]);
 
   const statusLabel = (s: number) =>
     PAYMENT_STATUS[s as keyof typeof PAYMENT_STATUS] ?? "Unknown";
 
-  const statusColor = (s: number) => {
+  function statusVariant(
+    s: number | string
+  ): "primary" | "warning" | "danger" | "secondary" | "default" {
+    if (typeof s === "string") {
+      switch (s) {
+        case "completed":
+          return "primary";
+        case "delayed":
+        case "released":
+          return "warning";
+        case "escrowed":
+          return "danger";
+        default:
+          return "default";
+      }
+    }
     switch (s) {
       case 1:
-        return "text-emerald-400 bg-emerald-900/50";
+        return "primary";
       case 2:
-        return "text-yellow-400 bg-yellow-900/50";
+        return "warning";
       case 3:
-        return "text-red-400 bg-red-900/50";
+        return "danger";
       case 4:
-        return "text-blue-400 bg-blue-900/50";
+        return "secondary";
       case 5:
-        return "text-slate-400 bg-slate-800";
+        return "default";
       default:
-        return "text-slate-500 bg-slate-800";
+        return "default";
     }
-  };
+  }
+
+  const showMock = useMock;
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
+    <div>
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-white">My Payments</h3>
-        <button
-          onClick={fetchPayments}
-          disabled={isLoading || !contractsReady}
-          className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 text-xs font-medium border border-slate-700 transition-colors"
-        >
-          {isLoading ? "Loading..." : "Refresh"}
-        </button>
+        <h3 className="text-sm font-heading font-bold text-text">
+          Payment History
+        </h3>
+        <div className="flex items-center gap-2">
+          {showMock && (
+            <Badge variant="warning" size="sm">
+              Demo Data
+            </Badge>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={fetchPayments}
+            disabled={isLoading}
+          >
+            <RefreshCw size={13} className={isLoading ? "animate-spin" : ""} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
-      {!contractsReady || !address ? (
-        <p className="text-sm text-slate-500">
-          Connect wallet to view your payments
-        </p>
+      {showMock ? (
+        <div className="space-y-3">
+          {MOCK_EMPLOYEE_PAYMENTS.map((p) => (
+            <div
+              key={p.id}
+              className="glass-card-static p-4 flex items-center justify-between"
+            >
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-mono text-text-secondary">
+                    Payment #{p.id}
+                  </span>
+                  <Badge variant={statusVariant(p.status)} size="sm">
+                    {p.status.charAt(0).toUpperCase() + p.status.slice(1)}
+                  </Badge>
+                  <Badge variant="outline" size="sm">
+                    {p.type}
+                  </Badge>
+                </div>
+                <p className="text-xs text-text-muted mt-1">
+                  {new Date(p.date).toLocaleDateString("en-US", {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </p>
+              </div>
+              <div className="text-right">
+                <span className="inline-flex items-center gap-1 text-sm font-mono text-text-muted">
+                  <Lock size={10} />
+                  Encrypted
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
       ) : payments.length === 0 ? (
-        <p className="text-sm text-slate-500">No payment records found</p>
+        <div className="glass-card-static p-12 text-center">
+          <FileText size={40} className="mx-auto mb-3 text-text-muted" />
+          <p className="text-sm font-medium text-text mb-1">
+            No payments yet
+          </p>
+          <p className="text-xs text-text-muted">
+            Your payment records will appear here after payroll execution
+          </p>
+        </div>
       ) : (
         <div className="space-y-3">
           {payments.map((p) => (
             <div
               key={p.id}
-              className="rounded-lg bg-slate-800/50 p-4 flex items-center justify-between"
+              className="glass-card-static p-4 flex items-center justify-between"
             >
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-mono text-slate-300">
+                  <span className="text-sm font-mono text-text-secondary">
                     Payment #{p.id}
                   </span>
-                  <span
-                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusColor(p.status)}`}
-                  >
+                  <Badge variant={statusVariant(p.status)} size="sm">
                     {statusLabel(p.status)}
-                  </span>
+                  </Badge>
                 </div>
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs text-text-muted mt-1">
                   Created {formatTimestamp(p.createdAt)}
                   {p.releaseTime > 0n &&
-                    ` • Releases ${formatTimestamp(p.releaseTime)}`}
+                    ` \u2022 Releases ${formatTimestamp(p.releaseTime)}`}
                 </p>
                 {p.milestone && (
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <p className="text-xs text-text-muted mt-0.5">
                     {p.milestone}
                   </p>
                 )}
               </div>
               <div className="text-right">
-                <span className="text-sm font-mono text-slate-400">
-                  *** cPAY
+                <span className="inline-flex items-center gap-1 text-sm font-mono text-text-muted">
+                  <Lock size={10} />
+                  Encrypted
                 </span>
-                <p className="text-xs text-slate-500">Encrypted</p>
               </div>
             </div>
           ))}
