@@ -18,7 +18,7 @@ export default function AddEmployee({
   onClose,
   onSuccess,
 }: AddEmployeeProps) {
-  const { payGramCore, address, encrypt, contractsReady } = useWeb3();
+  const { payGramCore, contractsReady } = useWeb3();
   const [wallet, setWallet] = useState("");
   const [salary, setSalary] = useState("");
   const [role, setRole] = useState("");
@@ -42,7 +42,7 @@ export default function AddEmployee({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!payGramCore || !address) return;
+    if (!payGramCore) return;
 
     setIsSubmitting(true);
     setStatus(null);
@@ -53,25 +53,12 @@ export default function AddEmployee({
         throw new Error("Salary must be a positive number");
       }
 
-      const coreAddress = await payGramCore.getAddress();
-      const result = await encrypt(salaryNum, coreAddress, address);
-
-      if (result.encrypted && result.handles && result.inputProof) {
-        const tx = await payGramCore.addEmployee(
-          wallet,
-          result.handles[0],
-          result.inputProof,
-          role
-        );
-        await tx.wait();
-      } else {
-        const tx = await payGramCore.addEmployeePlaintext(
-          wallet,
-          salaryNum,
-          role
-        );
-        await tx.wait();
-      }
+      const tx = await payGramCore.addEmployeePlaintext(
+        wallet,
+        salaryNum,
+        role
+      );
+      await tx.wait();
 
       setStatus({ type: "success", message: "Employee added successfully" });
       setTimeout(() => {
@@ -112,7 +99,7 @@ export default function AddEmployee({
           placeholder="5000"
           min="1"
           required
-          hint="Will be encrypted using FHE before storing on-chain"
+          hint="Encrypted on-chain via FHE"
         />
 
         <Input
@@ -132,7 +119,7 @@ export default function AddEmployee({
             size="lg"
           >
             <Lock size={14} />
-            {isSubmitting ? "Encrypting & Submitting..." : "Add Employee (Encrypted)"}
+            {isSubmitting ? "Submitting..." : "Add Employee"}
           </Button>
 
           {!contractsReady && (
@@ -143,8 +130,8 @@ export default function AddEmployee({
           )}
 
           <p className="text-[11px] text-text-muted leading-relaxed">
-            Salary will be encrypted using FHE before storing on-chain. Only the
-            employee can decrypt their own salary.
+            Salary is encrypted on-chain via FHE. Only the employee and
+            employer can decrypt their own values.
           </p>
         </div>
 
