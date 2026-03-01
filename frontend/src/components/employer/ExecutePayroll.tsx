@@ -8,7 +8,11 @@ import Button from "@/components/ui/Button";
 import Dialog from "@/components/ui/Dialog";
 import Badge from "@/components/ui/Badge";
 
-export default function ExecutePayroll() {
+interface ExecutePayrollProps {
+  isOwner: boolean;
+}
+
+export default function ExecutePayroll({ isOwner }: ExecutePayrollProps) {
   const { payGramCore, contractsReady } = useWeb3();
   const [activeCount, setActiveCount] = useState<number>(0);
   const [totalPayrolls, setTotalPayrolls] = useState<number>(0);
@@ -132,7 +136,7 @@ export default function ExecutePayroll() {
 
         <Button
           onClick={() => setShowConfirm(true)}
-          disabled={!contractsReady || activeCount === 0}
+          disabled={!contractsReady || activeCount === 0 || !isOwner}
           className="w-full"
           size="lg"
         >
@@ -144,6 +148,13 @@ export default function ExecutePayroll() {
           <p className="flex items-center gap-1.5 mt-3 text-xs text-warning">
             <AlertCircle size={12} />
             Connect wallet to execute payroll
+          </p>
+        )}
+
+        {contractsReady && !isOwner && (
+          <p className="flex items-center gap-1.5 mt-3 text-xs text-text-muted">
+            <Lock size={12} />
+            Only contract owner can execute payroll
           </p>
         )}
 

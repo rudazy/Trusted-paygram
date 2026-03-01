@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { Users, DollarSign, Wallet, Shield, ChevronRight } from "lucide-react";
+import { Users, DollarSign, Wallet, Shield, ChevronRight, Eye } from "lucide-react";
 import { useWeb3 } from "@/providers/Web3Provider";
 import { MOCK_STATS } from "@/lib/mockData";
 import AddressDisplay from "@/components/ui/AddressDisplay";
@@ -22,9 +22,27 @@ const TABS = [
 ];
 
 export default function EmployerDashboard() {
-  const { address, isConnected, isSupportedChain, contractsReady } = useWeb3();
+  const { address, isConnected, isSupportedChain, contractsReady, payGramCore } = useWeb3();
   const [activeTab, setActiveTab] = useState("employees");
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [isOwner, setIsOwner] = useState(false);
+
+  const checkOwner = useCallback(async () => {
+    if (!payGramCore || !address) {
+      setIsOwner(false);
+      return;
+    }
+    try {
+      const owner: string = await payGramCore.owner();
+      setIsOwner(owner.toLowerCase() === address.toLowerCase());
+    } catch {
+      setIsOwner(false);
+    }
+  }, [payGramCore, address]);
+
+  useEffect(() => {
+    checkOwner();
+  }, [checkOwner]);
 
   const showDashboard = isConnected && isSupportedChain;
 
@@ -41,6 +59,17 @@ export default function EmployerDashboard() {
 
       {/* Network Banner */}
       <NetworkBanner />
+
+      {/* View Mode Banner */}
+      {showDashboard && contractsReady && !isOwner && (
+        <div className="flex items-center gap-2.5 px-4 py-3 mb-4 rounded-xl bg-white/[0.04] border border-white/[0.08]">
+          <Eye size={16} className="text-text-muted shrink-0" />
+          <p className="text-sm text-text-secondary">
+            <span className="font-medium text-text">View Mode</span>
+            {" "}&mdash; Connect as contract owner to manage payroll
+          </p>
+        </div>
+      )}
 
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
@@ -124,9 +153,9 @@ export default function EmployerDashboard() {
       {/* ─── Tab Content ─── */}
       <div className="min-h-[400px]">
         {activeTab === "employees" && (
-          <EmployeeList onAddEmployee={() => setAddDialogOpen(true)} />
+          <EmployeeList onAddEmployee={() => setAddDialogOpen(true)} isOwner={isOwner} />
         )}
-        {activeTab === "payroll" && <ExecutePayroll />}
+        {activeTab === "payroll" && <ExecutePayroll isOwner={isOwner} />}
         {activeTab === "history" && <PayrollHistory />}
       </div>
 

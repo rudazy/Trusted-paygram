@@ -21,9 +21,10 @@ interface EmployeeData {
 
 interface EmployeeListProps {
   onAddEmployee: () => void;
+  isOwner: boolean;
 }
 
-export default function EmployeeList({ onAddEmployee }: EmployeeListProps) {
+export default function EmployeeList({ onAddEmployee, isOwner }: EmployeeListProps) {
   const { payGramCore, contractsReady } = useWeb3();
   const [employees, setEmployees] = useState<EmployeeData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -101,9 +102,16 @@ export default function EmployeeList({ onAddEmployee }: EmployeeListProps) {
             <RefreshCw size={13} className={isLoading ? "animate-spin" : ""} />
             Refresh
           </Button>
-          <Button variant="primary" size="sm" onClick={onAddEmployee}>
-            Add Employee
-          </Button>
+          <div className="relative group">
+            <Button variant="primary" size="sm" onClick={onAddEmployee} disabled={!isOwner}>
+              Add Employee
+            </Button>
+            {!isOwner && (
+              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1.5 rounded-lg bg-surface-elevated text-[11px] text-text-muted whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none border border-white/[0.08]">
+                Only contract owner can add employees
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -114,7 +122,7 @@ export default function EmployeeList({ onAddEmployee }: EmployeeListProps) {
           <p className="text-xs text-text-muted mb-4">
             Add your first team member to get started
           </p>
-          <Button size="sm" onClick={onAddEmployee}>
+          <Button size="sm" onClick={onAddEmployee} disabled={!isOwner}>
             Add Employee
           </Button>
         </div>
