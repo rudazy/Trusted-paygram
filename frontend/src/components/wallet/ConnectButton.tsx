@@ -19,10 +19,10 @@ function truncateAddr(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
-function getNetworkColor(chainId: number | null, isSepolia: boolean, isSupportedChain: boolean) {
+function getNetworkColor(chainId: number | null) {
   if (!chainId) return "bg-text-muted";
-  if (isSepolia) return "bg-primary";        // green for Sepolia
-  if (isSupportedChain) return "bg-secondary"; // blue for Mainnet
+  if (chainId === 1) return "bg-primary";      // green for Mainnet
+  if (chainId === 11155111) return "bg-secondary"; // blue for Sepolia
   return "bg-danger";                          // red for unsupported
 }
 
@@ -40,9 +40,9 @@ export default function ConnectButton() {
     isConnected,
     isLoading,
     isSupportedChain,
-    isSepolia,
     connect,
     disconnect,
+    switchChain,
     switchToSepolia,
   } = useWeb3();
 
@@ -165,6 +165,19 @@ export default function ConnectButton() {
             </div>
 
             <div className="p-1">
+              {/* Switch to Mainnet */}
+              <button
+                type="button"
+                onClick={() => {
+                  switchChain(1);
+                  setDropdownOpen(false);
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-warning hover:bg-warning/10 rounded-lg transition-colors font-medium"
+              >
+                <ArrowRightLeft size={14} />
+                Switch to Mainnet
+              </button>
+
               {/* Switch to Sepolia */}
               <button
                 type="button"
@@ -172,7 +185,7 @@ export default function ConnectButton() {
                   switchToSepolia();
                   setDropdownOpen(false);
                 }}
-                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-warning hover:bg-warning/10 rounded-lg transition-colors font-medium"
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:text-text hover:bg-white/[0.03] rounded-lg transition-colors"
               >
                 <ArrowRightLeft size={14} />
                 Switch to Sepolia
@@ -212,7 +225,7 @@ export default function ConnectButton() {
   }
 
   // ─── State 4: Connected on correct network — show green dot + address ───
-  const networkColor = getNetworkColor(chainId, isSepolia, isSupportedChain);
+  const networkColor = getNetworkColor(chainId);
 
   return (
     <div ref={dropdownRef} className="relative">
@@ -230,7 +243,10 @@ export default function ConnectButton() {
           <span className={cn("relative inline-flex h-2 w-2 rounded-full", networkColor)} />
         </span>
         <span className="font-mono text-text">{truncateAddr(address)}</span>
-        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary">
+        <span className={cn(
+          "px-1.5 py-0.5 rounded text-[10px] font-medium",
+          chainId === 1 ? "bg-primary/10 text-primary" : "bg-secondary/10 text-secondary"
+        )}>
           {chainName}
         </span>
         <ChevronDown
@@ -270,7 +286,7 @@ export default function ConnectButton() {
           <div className="px-3 py-2.5 border-b border-white/[0.06] flex items-center gap-2">
             <Globe size={12} className="text-text-muted" />
             <span className="text-xs text-text-muted">Network:</span>
-            <span className="text-xs font-medium text-primary flex items-center gap-1.5">
+            <span className={cn("text-xs font-medium flex items-center gap-1.5", chainId === 1 ? "text-primary" : "text-secondary")}>
               <span className={cn("inline-flex h-1.5 w-1.5 rounded-full", networkColor)} />
               {chainName}
             </span>

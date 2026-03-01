@@ -174,6 +174,7 @@ export function useWallet() {
     const handleChainChanged = (...args: unknown[]) => {
       const chainIdHex = args[0] as string;
       const newChainId = parseInt(chainIdHex, 16);
+      console.log("[useWallet] chainChanged:", newChainId, `(0x${newChainId.toString(16)})`);
       setState((prev) => ({ ...prev, chainId: newChainId }));
       // Reconnect to get fresh provider/signer for new chain
       if (state.isConnected) {

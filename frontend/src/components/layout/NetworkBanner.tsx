@@ -6,7 +6,7 @@ import { useWeb3 } from "@/providers/Web3Provider";
 import { cn } from "@/lib/utils";
 
 export default function NetworkBanner() {
-  const { isConnected, isSupportedChain, switchToSepolia } = useWeb3();
+  const { isConnected, isSupportedChain, switchChain } = useWeb3();
   const [dismissed, setDismissed] = useState(false);
 
   // Connected on correct network — no banner
@@ -57,7 +57,7 @@ export default function NetworkBanner() {
         </p>
         {isWrongNetwork && (
           <p className="text-xs text-text-muted mt-0.5">
-            PayGram operates on Sepolia testnet
+            PayGram operates on Ethereum Mainnet or Sepolia testnet
           </p>
         )}
       </div>
@@ -66,7 +66,7 @@ export default function NetworkBanner() {
       {isWrongNetwork && (
         <button
           type="button"
-          onClick={switchToSepolia}
+          onClick={() => switchChain(1)}
           className={cn(
             "flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold",
             "bg-warning/10 text-warning hover:bg-warning/20",
@@ -74,7 +74,7 @@ export default function NetworkBanner() {
           )}
         >
           <ArrowRightLeft size={12} />
-          Switch to Sepolia
+          Switch to Mainnet
         </button>
       )}
 
