@@ -633,6 +633,10 @@ contract PayGramCore is ZamaEthereumConfig, Ownable2Step {
         ebool isHigh = trustScoring.isHighTrust(emp.wallet);
         ebool isMed  = trustScoring.isMediumTrust(emp.wallet);
 
+        // Ensure this contract can operate on the returned encrypted booleans
+        FHE.allowThis(isHigh);
+        FHE.allowThis(isMed);
+
         euint64 zero = FHE.asEuint64(0);
 
         // Oblivious amount computation:

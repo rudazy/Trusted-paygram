@@ -13,13 +13,16 @@ export const SUPPORTED_CHAINS = {
   },
 } as const;
 
-/** Deployed contract addresses — Sepolia & Mainnet (2026-02-28) */
+/** Deployed contract addresses — Sepolia & Mainnet
+ *  NOTE: After running scripts/fix-acl-permissions.ts, update the Sepolia
+ *  trustScoring address with the newly deployed contract address.
+ */
 export const CONTRACT_ADDRESSES: Record<
   number,
   { trustScoring: string; payGramCore: string; payGramToken: string }
 > = {
   [SUPPORTED_CHAINS.sepolia.chainId]: {
-    trustScoring: "0xbFF470d080D0BC36CcDcE8f5d1D6C98517F15df7",
+    trustScoring: "0x458AA964DF9E6ae9F5B2Db33E1B395C10bbA263A",
     payGramToken: "0xC97C848E7021AdFC36269ddc5e39E54939E81704",
     payGramCore: "0x331048736e7dC599E46187CaBa00dcC46952a7d7",
   },

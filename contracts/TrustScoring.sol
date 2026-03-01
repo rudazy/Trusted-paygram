@@ -200,6 +200,7 @@ contract TrustScoring is ZamaEthereumConfig, Ownable2Step {
         address account
     ) external scored(account) notExpired(account) returns (ebool result) {
         result = FHE.ge(_trustScores[account], FHE.asEuint64(HIGH_TRUST_THRESHOLD));
+        FHE.allowTransient(result, msg.sender);
     }
 
     /**
@@ -211,6 +212,7 @@ contract TrustScoring is ZamaEthereumConfig, Ownable2Step {
         address account
     ) external scored(account) notExpired(account) returns (ebool result) {
         result = FHE.ge(_trustScores[account], FHE.asEuint64(MEDIUM_TRUST_THRESHOLD));
+        FHE.allowTransient(result, msg.sender);
     }
 
     /**
@@ -222,6 +224,7 @@ contract TrustScoring is ZamaEthereumConfig, Ownable2Step {
         address account
     ) external scored(account) notExpired(account) returns (ebool result) {
         result = FHE.lt(_trustScores[account], FHE.asEuint64(MEDIUM_TRUST_THRESHOLD));
+        FHE.allowTransient(result, msg.sender);
     }
 
     /**
@@ -247,6 +250,7 @@ contract TrustScoring is ZamaEthereumConfig, Ownable2Step {
 
         FHE.allowThis(tier);
         FHE.allow(tier, owner());
+        FHE.allowTransient(tier, msg.sender);
     }
 
     // ──────────────────────────────────────────────────────────────────

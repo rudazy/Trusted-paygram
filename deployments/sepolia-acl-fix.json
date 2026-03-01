@@ -1,0 +1,9 @@
+{
+  "network": "sepolia",
+  "chainId": 11155111,
+  "fix": "FHE ACL allowTransient for tier checks",
+  "newTrustScoring": "0x458AA964DF9E6ae9F5B2Db33E1B395C10bbA263A",
+  "payGramCore": "0x331048736e7dC599E46187CaBa00dcC46952a7d7",
+  "payGramToken": "0xC97C848E7021AdFC36269ddc5e39E54939E81704",
+  "fixedAt": "2026-03-01T08:43:13.105Z"
+}

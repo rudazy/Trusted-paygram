@@ -158,7 +158,7 @@ See [docs/SETUP.md](docs/SETUP.md) for detailed configuration.
 
 | Contract | Address | Etherscan |
 |:---------|:--------|:----------|
-| **TrustScoring** | `0xbFF470d080D0BC36CcDcE8f5d1D6C98517F15df7` | [View](https://sepolia.etherscan.io/address/0xbFF470d080D0BC36CcDcE8f5d1D6C98517F15df7#code) |
+| **TrustScoring** | `0x458AA964DF9E6ae9F5B2Db33E1B395C10bbA263A` | [View](https://sepolia.etherscan.io/address/0x458AA964DF9E6ae9F5B2Db33E1B395C10bbA263A#code) |
 | **PayGramToken** | `0xC97C848E7021AdFC36269ddc5e39E54939E81704` | [View](https://sepolia.etherscan.io/address/0xC97C848E7021AdFC36269ddc5e39E54939E81704#code) |
 | **PayGramCore** | `0x331048736e7dC599E46187CaBa00dcC46952a7d7` | [View](https://sepolia.etherscan.io/address/0x331048736e7dC599E46187CaBa00dcC46952a7d7#code) |
 

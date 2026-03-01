@@ -3,7 +3,7 @@
   "chainId": 11155111,
   "deployer": "0x60C05e2d820CE989E944ED4e7bb33bAEB8705c62",
   "contracts": {
-    "TrustScoring": "0xbFF470d080D0BC36CcDcE8f5d1D6C98517F15df7",
+    "TrustScoring": "0x458AA964DF9E6ae9F5B2Db33E1B395C10bbA263A",
     "PayGramToken": "0xC97C848E7021AdFC36269ddc5e39E54939E81704",
     "PayGramCore": "0x331048736e7dC599E46187CaBa00dcC46952a7d7"
   },
